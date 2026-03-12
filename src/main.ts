@@ -39,7 +39,7 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const grpcPort = configService.app.grpcPort;
-  const protoPath = join(__dirname, 'proto/snapper.proto');
+  const protoPath = join(process.cwd(), 'src/proto/snapper.proto');
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
