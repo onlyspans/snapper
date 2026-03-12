@@ -4,6 +4,9 @@ import { ConfigService } from '@config/config.service';
 import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
+import { join } from 'path';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { ReflectionService } from '@grpc/reflection';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -35,28 +38,28 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api-docs', app, document);
 
-  // const grpcPort = configService.app.grpcPort;
-  // const protoPath = join(__dirname, 'proto/projects.proto');
-  // app.connectMicroservice<MicroserviceOptions>({
-  //   transport: Transport.GRPC,
-  //   options: {
-  //     package: 'projects.v1',
-  //     protoPath,
-  //     url: `0.0.0.0:${grpcPort}`,
-  //     onLoadPackageDefinition: (pkg, server) => {
-  //       new ReflectionService(pkg).addToServer(server);
-  //     },
-  //   },
-  // });
+  const grpcPort = configService.app.grpcPort;
+  const protoPath = join(__dirname, 'proto/snapper.proto');
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.GRPC,
+    options: {
+      package: 'snapper.v1',
+      protoPath,
+      url: `0.0.0.0:${grpcPort}`,
+      onLoadPackageDefinition: (pkg, server) => {
+        new ReflectionService(pkg).addToServer(server);
+      },
+    },
+  });
 
-  // await app.startAllMicroservices();
+  await app.startAllMicroservices();
 
   const port = configService.app.port;
   await app.listen(port);
 
   console.log(`🚀 HTTP Server (REST API) is running on: http://localhost:${port}/api`);
   console.log(`📚 Swagger documentation: http://localhost:${port}/api-docs`);
-  // console.log(`🔌 gRPC Microservice is running on: 0.0.0.0:${grpcPort}`);
+  console.log(`🔌 gRPC Microservice is running on: 0.0.0.0:${grpcPort}`);
 }
 
 void bootstrap();
