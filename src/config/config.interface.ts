@@ -9,10 +9,9 @@ export interface ApplicationConfig {
 }
 
 export interface DatabaseConfig {
-  type: 'postgres';
   url: string;
-  synchronize: boolean;
-  autoMigrate: boolean;
+  logQueries: boolean;
+  logLevel: 'info' | 'warn' | 'error';
 }
 
 export interface AppConfig {
