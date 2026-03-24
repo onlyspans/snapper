@@ -5,9 +5,20 @@ import { ConfigModule } from '@config/config.module';
 import { DatabaseModule } from '@database/database.module';
 import { CommonModule } from '@common/common.module';
 import { IntegrationsModule } from '@integrations/integrations.module';
+import { SnapshotsModule } from '@/snapshots';
+import { ReleaseAssemblyModule } from '@/release-assembly';
+import { MetricsModule } from '@/metrics';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, CommonModule, IntegrationsModule],
+  imports: [
+    ConfigModule,
+    DatabaseModule,
+    CommonModule,
+    IntegrationsModule,
+    SnapshotsModule,
+    ReleaseAssemblyModule,
+    MetricsModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
