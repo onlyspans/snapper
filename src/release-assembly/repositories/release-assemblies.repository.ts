@@ -15,6 +15,13 @@ export class ReleaseAssembliesRepository {
     return this.db.releaseAssembly.findUnique({ where: { id } });
   }
 
+  async findByProjectAndVersion(projectId: string, version: string): Promise<ReleaseAssembly | null> {
+    return this.db.releaseAssembly.findFirst({
+      where: { projectId, version },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async updateStatus(id: string, status: AssemblyStatus, errorMessage?: string): Promise<ReleaseAssembly> {
     return this.db.releaseAssembly.update({
       where: { id },

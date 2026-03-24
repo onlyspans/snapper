@@ -5,6 +5,7 @@ export interface ReleaseAssemblyEntity {
   id: string;
   snapshotId: string | null;
   projectId: string;
+  version: string;
   status: AssemblyStatus;
   steps: AssemblyStep[];
   errorMessage: string | null;

@@ -48,6 +48,7 @@ model ReleaseAssembly {
   id           String         @id @default(uuid())
   snapshotId   String?
   projectId    String
+  version      String
   status       AssemblyStatus @default(IN_PROGRESS)
   steps        Json           @default("[]")
   errorMessage String?
@@ -62,5 +63,6 @@ model ReleaseAssembly {
   @@index([projectId])
   @@index([status])
   @@index([createdAt])
+  @@unique([projectId, version])
   @@map("release_assemblies")
 }

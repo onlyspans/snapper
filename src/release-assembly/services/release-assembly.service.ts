@@ -28,12 +28,26 @@ export class ReleaseAssemblyService {
   ) {}
 
   async notifyArtifactsReady(dto: ArtifactNotificationDto): Promise<AssemblyStatusDto> {
-    const assembly = await this.releaseAssembliesRepository.create({
-      projectId: dto.projectId,
-      status: AssemblyStatus.IN_PROGRESS,
-      createdBy: dto.triggeredBy,
-      steps: this.initialSteps() as unknown as Prisma.InputJsonValue,
-    });
+    const existingAssembly = await this.releaseAssembliesRepository.findByProjectAndVersion(dto.projectId, dto.version);
+    if (
+      existingAssembly &&
+      (existingAssembly.status === AssemblyStatus.IN_PROGRESS || existingAssembly.status === AssemblyStatus.COMPLETED)
+    ) {
+      this.logger.log({
+        message: 'Idempotent assembly hit',
+        assemblyId: existingAssembly.id,
+        projectId: dto.projectId,
+        version: dto.version,
+        status: existingAssembly.status,
+      });
+      return this.getAssemblyStatus(existingAssembly.id);
+    }
+
+    const assemblyCreation = await this.createAssemblyWithIdempotency(dto);
+    if (assemblyCreation.isExisting) {
+      return this.getAssemblyStatus(assemblyCreation.assembly.id);
+    }
+    const assembly = assemblyCreation.assembly;
 
     try {
       const collected = await this.runMeasuredStep(assembly.id, 'collect', async () => {
@@ -108,9 +122,58 @@ export class ReleaseAssemblyService {
       return this.getAssemblyStatus(assembly.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown release assembly failure';
-      this.logger.error(`Release assembly ${assembly.id} failed: ${message}`);
+      this.logger.error(
+        {
+          message: 'Release assembly failed',
+          assemblyId: assembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+          error: message,
+        },
+        undefined,
+      );
       await this.releaseAssembliesRepository.updateStatus(assembly.id, AssemblyStatus.FAILED, message);
       this.metricsService.recordAssemblyFailed();
+      throw error;
+    }
+  }
+
+  private async createAssemblyWithIdempotency(
+    dto: ArtifactNotificationDto,
+  ): Promise<{ assembly: { id: string }; isExisting: boolean }> {
+    try {
+      const assembly = await this.releaseAssembliesRepository.create({
+        projectId: dto.projectId,
+        version: dto.version,
+        status: AssemblyStatus.IN_PROGRESS,
+        createdBy: dto.triggeredBy,
+        steps: this.initialSteps() as unknown as Prisma.InputJsonValue,
+      });
+      return { assembly, isExisting: false };
+    } catch (error) {
+      const isUniqueConstraintViolation =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+      if (!isUniqueConstraintViolation) {
+        throw error;
+      }
+
+      const existingAssembly = await this.releaseAssembliesRepository.findByProjectAndVersion(
+        dto.projectId,
+        dto.version,
+      );
+      if (
+        existingAssembly &&
+        (existingAssembly.status === AssemblyStatus.IN_PROGRESS || existingAssembly.status === AssemblyStatus.COMPLETED)
+      ) {
+        this.logger.log({
+          message: 'Concurrent idempotent assembly hit',
+          assemblyId: existingAssembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+          status: existingAssembly.status,
+        });
+        return { assembly: existingAssembly, isExisting: true };
+      }
       throw error;
     }
   }
