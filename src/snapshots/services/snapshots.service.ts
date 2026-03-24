@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { Prisma, SnapshotStatus } from '@database/generated/client';
 import { Pagination } from '@common/interfaces/pagination.interface';
+import { MetricsService } from '@metrics/metrics.service';
 import { CreateSnapshotDto, SnapshotQueryDto, SnapshotResponseDto } from '../dto';
 import { SnapshotEntity } from '../interfaces';
 import { SnapshotsRepository } from '../repositories';
@@ -13,6 +14,7 @@ export class SnapshotsService {
   constructor(
     private readonly repository: SnapshotsRepository,
     private readonly snapshotBuilderService: SnapshotBuilderService,
+    private readonly metricsService: MetricsService,
   ) {}
 
   async getById(id: string): Promise<SnapshotResponseDto> {
@@ -66,6 +68,7 @@ export class SnapshotsService {
         sizeBytes,
       });
 
+      this.metricsService.recordSnapshotCreated(dto.projectId);
       this.logger.log(`Snapshot "${readySnapshot.id}" created and uploaded`);
       return this.toResponseDto(readySnapshot);
     } catch (error) {
