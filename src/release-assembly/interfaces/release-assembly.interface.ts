@@ -1,5 +1,5 @@
 import { AssemblyStatus } from '@database/generated/client';
-import { AssemblyStep } from '@/release-assembly';
+import { AssemblyStep } from './assembly-step.interface';
 
 export interface ReleaseAssemblyEntity {
   id: string;

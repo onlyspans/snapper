@@ -5,8 +5,8 @@ import { ConfigModule } from '@config/config.module';
 import { DatabaseModule } from '@database/database.module';
 import { CommonModule } from '@common/common.module';
 import { IntegrationsModule } from '@integrations/integrations.module';
-import { SnapshotsModule } from '@/snapshots';
-import { ReleaseAssemblyModule } from '@/release-assembly';
+import { SnapshotsModule } from '@snapshots/snapshots.module';
+import { ReleaseAssemblyModule } from '@release-assembly/release-assembly.module';
 import { MetricsModule } from '@/metrics';
 
 @Module({

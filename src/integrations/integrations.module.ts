@@ -8,12 +8,7 @@ import { ArtifactStorageClient } from './artifact-storage/artifact-storage.clien
 import { EventsClient } from './events/events.client';
 import { ProjectsClient } from './projects/projects.client';
 import { VariablesClient } from './variables/variables.client';
-import {
-  ARTIFACT_STORAGE_CLIENT,
-  EVENTS_CLIENT,
-  PROJECTS_CLIENT,
-  VARIABLES_CLIENT,
-} from './integrations.constants';
+import { ARTIFACT_STORAGE_CLIENT, EVENTS_CLIENT, PROJECTS_CLIENT, VARIABLES_CLIENT } from './integrations.constants';
 
 function resolveProtoPath(fileName: string): string {
   const distProtoPath = join(process.cwd(), 'dist/proto', fileName);

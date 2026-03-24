@@ -2,7 +2,8 @@ import { Injectable, Logger, NotFoundException, UnprocessableEntityException } f
 import { AssemblyStatus, Prisma } from '@database/generated/client';
 import { EventsClient } from '@integrations/events';
 import { ProjectsClient } from '@integrations/projects';
-import { CreateSnapshotDto, SnapshotsService } from '@/snapshots';
+import { CreateSnapshotDto } from '@snapshots/dto';
+import { SnapshotsService } from '@snapshots/services';
 import { ArtifactNotificationDto, AssemblyStatusDto, ValidateConfigDto } from '../dto';
 import { AssemblyStep } from '../interfaces';
 import { ReleaseAssembliesRepository } from '../repositories';

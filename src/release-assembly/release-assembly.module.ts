@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '@database/database.module';
 import { IntegrationsModule } from '@integrations/integrations.module';
-import { SnapshotsModule } from '@/snapshots';
+import { SnapshotsModule } from '@snapshots/snapshots.module';
 import { ReleaseAssemblyGrpcController } from './grpc';
 import { ReleaseAssembliesRepository } from './repositories';
 import {
