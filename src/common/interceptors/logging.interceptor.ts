@@ -17,6 +17,36 @@ function safeLogPathFromUrl(url: string | undefined): string {
   }
 }
 
+const CORRELATION_HEADER_NAMES = ['x-correlation-id', 'correlation-id', 'x-request-id'] as const;
+
+function firstNonEmptyHeaderValue(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  names: readonly string[],
+): string | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  for (const name of names) {
+    const raw = headers[name];
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        const trimmed = typeof item === 'string' ? item.trim() : '';
+        if (trimmed.length > 0) {
+          return trimmed;
+        }
+      }
+      continue;
+    }
+    if (typeof raw === 'string') {
+      const trimmed = raw.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger(LoggingInterceptor.name);
@@ -51,14 +81,14 @@ export class LoggingInterceptor implements NestInterceptor {
                 const client = context.switchToWs().getClient<{
                   handshake?: { headers?: Record<string, string | string[] | undefined>; url?: string };
                 }>();
-                const pattern = context.getHandler()?.name ?? 'unknown';
+                const pattern = context.getHandler()?.name ?? 'unknown-handler';
                 const path = safeLogPathFromUrl(client.handshake?.url);
                 return `${pattern} ${path}`;
               } catch {
-                return context.getHandler().name;
+                return context.getHandler()?.name ?? 'unknown-handler';
               }
             })()
-          : context.getHandler().name;
+          : (context.getHandler()?.name ?? 'unknown-handler');
 
     this.correlationContext.enterWith(correlationId);
     return next.handle().pipe(
@@ -91,11 +121,7 @@ export class LoggingInterceptor implements NestInterceptor {
   private extractCorrelationId(context: ExecutionContext, transport: 'http' | 'rpc' | 'ws' | 'unknown'): string {
     if (transport === 'http') {
       const request = context.switchToHttp().getRequest<{ headers?: Record<string, string | string[] | undefined> }>();
-      const headerValue = request.headers?.['x-correlation-id'] ?? request.headers?.['correlation-id'];
-      if (Array.isArray(headerValue)) {
-        return headerValue[0] ?? createUuid();
-      }
-      return headerValue?.trim() || createUuid();
+      return firstNonEmptyHeaderValue(request.headers, CORRELATION_HEADER_NAMES) ?? createUuid();
     }
 
     if (transport === 'ws') {
@@ -108,13 +134,9 @@ export class LoggingInterceptor implements NestInterceptor {
         if (fromData.length > 0) {
           return fromData;
         }
-        const headers = client.handshake?.headers;
-        const headerValue = headers?.['x-correlation-id'] ?? headers?.['correlation-id'] ?? headers?.['x-request-id'];
-        if (Array.isArray(headerValue)) {
-          return headerValue[0]?.trim() || createUuid();
-        }
-        if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
-          return headerValue.trim();
+        const fromHeaders = firstNonEmptyHeaderValue(client.handshake?.headers, CORRELATION_HEADER_NAMES);
+        if (fromHeaders !== undefined) {
+          return fromHeaders;
         }
       } catch {
         // fall through to uuid

@@ -19,6 +19,8 @@ import { ConfigCollectorService } from './config-collector.service';
 import { ConfigValidatorService, ValidationResult } from './config-validator.service';
 import { TemplateRendererService } from './template-renderer.service';
 
+const VALIDATION_PLACEHOLDER_VERSION = 'validation';
+
 @Injectable()
 export class ReleaseAssemblyService {
   private readonly logger = new Logger(ReleaseAssemblyService.name);
@@ -251,7 +253,7 @@ export class ReleaseAssemblyService {
     const collected = await this.configCollectorService.collect({
       projectId: dto.projectId,
       artifactKey: dto.artifactKey,
-      version: 'validation',
+      version: VALIDATION_PLACEHOLDER_VERSION,
     });
     return this.configValidatorService.validate(collected);
   }

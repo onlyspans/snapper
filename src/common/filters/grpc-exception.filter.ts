@@ -32,8 +32,7 @@ function mapHttpStatusToGrpcCode(httpStatus: number): number {
   }
 }
 
-function httpExceptionMessage(exception: HttpException): string {
-  const res = exception.getResponse();
+function normalizeExceptionMessage(res: unknown, fallback: string): string {
   if (typeof res === 'string') {
     return res;
   }
@@ -46,7 +45,50 @@ function httpExceptionMessage(exception: HttpException): string {
       return raw;
     }
   }
-  return exception.message;
+  return fallback;
+}
+
+function sanitizeHttpExceptionForGrpc(exception: HttpException): {
+  publicMessage: string;
+  sanitizedForLog: Record<string, unknown>;
+  sanitizedDetails: Record<string, unknown>;
+} {
+  const httpStatus = exception.getStatus();
+  if (httpStatus >= 500) {
+    const minimal = {
+      statusCode: httpStatus,
+      message: 'Internal server error',
+    };
+    return {
+      publicMessage: 'Internal server error',
+      sanitizedForLog: minimal,
+      sanitizedDetails: minimal,
+    };
+  }
+
+  const res = exception.getResponse();
+  const messageStr = normalizeExceptionMessage(res, exception.message);
+
+  if (typeof res === 'string') {
+    const o = { statusCode: httpStatus, message: messageStr };
+    return { publicMessage: messageStr, sanitizedForLog: o, sanitizedDetails: o };
+  }
+
+  if (isObject(res)) {
+    const body = res as Record<string, unknown>;
+    const err = body.error;
+    const sanitized: Record<string, unknown> = {
+      statusCode: typeof body.statusCode === 'number' ? body.statusCode : httpStatus,
+      message: messageStr,
+    };
+    if (typeof err === 'string') {
+      sanitized.error = err;
+    }
+    return { publicMessage: messageStr, sanitizedForLog: sanitized, sanitizedDetails: sanitized };
+  }
+
+  const o = { statusCode: httpStatus, message: messageStr };
+  return { publicMessage: messageStr, sanitizedForLog: o, sanitizedDetails: o };
 }
 
 @Catch()
@@ -76,24 +118,24 @@ export class GrpcExceptionFilter extends BaseRpcExceptionFilter {
     }
 
     if (exception instanceof HttpException) {
-      const grpcCode = mapHttpStatusToGrpcCode(exception.getStatus());
-      const message = httpExceptionMessage(exception);
-      const res = exception.getResponse();
-      const level = exception.getStatus() >= 500 ? 'error' : 'warn';
+      const httpStatus = exception.getStatus();
+      const grpcCode = mapHttpStatusToGrpcCode(httpStatus);
+      const { publicMessage, sanitizedForLog, sanitizedDetails } = sanitizeHttpExceptionForGrpc(exception);
+      const level = httpStatus >= 500 ? 'error' : 'warn';
       this.logger[level]({
         message: 'Nest HTTP exception mapped to gRPC',
         correlationId,
-        httpStatus: exception.getStatus(),
+        httpStatus,
         grpcCode,
-        error: message,
-        response: res,
+        error: publicMessage,
+        response: sanitizedForLog,
       });
       return super.catch(
         new RpcException({
           code: grpcCode,
-          message,
+          message: publicMessage,
           correlationId,
-          ...(isObject(res) ? { details: res } : {}),
+          details: sanitizedDetails,
         }),
         host,
       );
