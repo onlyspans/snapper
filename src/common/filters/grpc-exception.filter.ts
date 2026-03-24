@@ -22,6 +22,8 @@ function mapHttpStatusToGrpcCode(httpStatus: number): number {
       return status.FAILED_PRECONDITION;
     case 429:
       return status.RESOURCE_EXHAUSTED;
+    case 503:
+      return status.UNAVAILABLE;
     default:
       if (httpStatus >= 500) {
         return status.INTERNAL;

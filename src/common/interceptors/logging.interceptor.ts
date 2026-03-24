@@ -2,8 +2,20 @@ import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } fr
 import { Metadata } from '@grpc/grpc-js';
 import { Observable } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
-import { createUuid } from '@common/utils';
+import { createUuid, pathWithoutQuery } from '@common/utils';
 import { CorrelationContextService } from '@common/logging';
+
+function safeLogPathFromUrl(url: string | undefined): string {
+  if (!url) {
+    return 'ws';
+  }
+  try {
+    const u = new URL(url, 'http://localhost');
+    return u.pathname || pathWithoutQuery(url);
+  } catch {
+    return pathWithoutQuery(url);
+  }
+}
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -14,23 +26,33 @@ export class LoggingInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const startedAt = Date.now();
     const rawType = context.getType<string>();
-    const type: 'http' | 'rpc' | 'ws' = rawType === 'http' || rawType === 'ws' ? rawType : 'rpc';
-    const correlationId = this.extractCorrelationId(context, type);
+    const transport: 'http' | 'rpc' | 'ws' | 'unknown' =
+      rawType === 'http' || rawType === 'ws' || rawType === 'rpc' ? rawType : 'unknown';
+    const correlationId = this.extractCorrelationId(context, transport);
 
     const contextInfo =
-      type === 'http'
+      transport === 'http'
         ? (() => {
-            const request = context.switchToHttp().getRequest<{ method?: string; url?: string }>();
-            return `${request.method ?? 'UNKNOWN'} ${request.url ?? 'unknown-route'}`;
+            const request = context.switchToHttp().getRequest<{
+              method?: string;
+              url?: string;
+              path?: string;
+            }>();
+            const pathRaw =
+              typeof request.path === 'string' && request.path.length > 0
+                ? request.path
+                : pathWithoutQuery(request.url);
+            const path = pathRaw.length > 0 ? pathRaw : 'unknown-route';
+            return `${request.method ?? 'UNKNOWN'} ${path}`;
           })()
-        : type === 'ws'
+        : transport === 'ws'
           ? (() => {
               try {
                 const client = context.switchToWs().getClient<{
                   handshake?: { headers?: Record<string, string | string[] | undefined>; url?: string };
                 }>();
                 const pattern = context.getHandler()?.name ?? 'unknown';
-                const path = client.handshake?.url ?? 'ws';
+                const path = safeLogPathFromUrl(client.handshake?.url);
                 return `${pattern} ${path}`;
               } catch {
                 return context.getHandler().name;
@@ -43,7 +65,7 @@ export class LoggingInterceptor implements NestInterceptor {
       tap(() => {
         this.logger.log({
           message: 'Request completed',
-          transport: type,
+          transport,
           target: contextInfo,
           durationMs: Date.now() - startedAt,
         });
@@ -54,7 +76,7 @@ export class LoggingInterceptor implements NestInterceptor {
         this.logger.error(
           {
             message: 'Request failed',
-            transport: type,
+            transport,
             target: contextInfo,
             durationMs: Date.now() - startedAt,
             error: message,
@@ -66,8 +88,8 @@ export class LoggingInterceptor implements NestInterceptor {
     );
   }
 
-  private extractCorrelationId(context: ExecutionContext, type: 'http' | 'rpc' | 'ws'): string {
-    if (type === 'http') {
+  private extractCorrelationId(context: ExecutionContext, transport: 'http' | 'rpc' | 'ws' | 'unknown'): string {
+    if (transport === 'http') {
       const request = context.switchToHttp().getRequest<{ headers?: Record<string, string | string[] | undefined> }>();
       const headerValue = request.headers?.['x-correlation-id'] ?? request.headers?.['correlation-id'];
       if (Array.isArray(headerValue)) {
@@ -76,7 +98,7 @@ export class LoggingInterceptor implements NestInterceptor {
       return headerValue?.trim() || createUuid();
     }
 
-    if (type === 'ws') {
+    if (transport === 'ws') {
       try {
         const client = context.switchToWs().getClient<{
           handshake?: { headers?: Record<string, string | string[] | undefined> };
@@ -97,6 +119,10 @@ export class LoggingInterceptor implements NestInterceptor {
       } catch {
         // fall through to uuid
       }
+      return createUuid();
+    }
+
+    if (transport !== 'rpc') {
       return createUuid();
     }
 

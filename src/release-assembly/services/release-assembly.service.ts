@@ -1,4 +1,11 @@
-import { ConflictException, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import { AssemblyStatus, Prisma, SnapshotStatus } from '@database/generated/client';
 import { EventsClient } from '@integrations/events';
 import { MetricsService } from '@metrics/metrics.service';
@@ -9,7 +16,7 @@ import { ArtifactNotificationDto, AssemblyStatusDto, ValidateConfigDto } from '.
 import { AssemblyStep } from '../interfaces';
 import { ReleaseAssembliesRepository } from '../repositories';
 import { ConfigCollectorService } from './config-collector.service';
-import { ConfigValidatorService } from './config-validator.service';
+import { ConfigValidatorService, ValidationResult } from './config-validator.service';
 import { TemplateRendererService } from './template-renderer.service';
 
 @Injectable()
@@ -49,6 +56,9 @@ export class ReleaseAssemblyService {
     }
     const assembly = assemblyCreation.assembly;
 
+    let createdSnapshotId: string | undefined;
+    let releaseRegistered = false;
+
     try {
       const collected = await this.runMeasuredStep(assembly.id, 'collect', async () => {
         return this.configCollectorService.collect({
@@ -58,14 +68,21 @@ export class ReleaseAssemblyService {
         });
       });
 
-      const validation = await this.runMeasuredStep(assembly.id, 'validate', async () =>
-        Promise.resolve(this.configValidatorService.validate(collected)),
-      );
-      if (!validation.valid) {
-        throw new UnprocessableEntityException('Configuration validation failed', {
-          description: validation.errors.join('; '),
-        });
-      }
+      await this.runMeasuredStep(assembly.id, 'validate', () => {
+        const validation = this.configValidatorService.validate(collected);
+        if (validation.fatalErrors.length > 0) {
+          throw new ServiceUnavailableException({
+            message: 'Integration error during configuration validation',
+            fatalErrors: validation.fatalErrors,
+          });
+        }
+        if (!validation.valid) {
+          throw new UnprocessableEntityException('Configuration validation failed', {
+            description: validation.errors.join('; '),
+          });
+        }
+        return Promise.resolve();
+      });
 
       const normalizedPayload = await this.runMeasuredStep(assembly.id, 'normalize', async () =>
         Promise.resolve(this.templateRendererService.normalize(collected)),
@@ -80,6 +97,7 @@ export class ReleaseAssemblyService {
           createdBy: dto.triggeredBy,
         } satisfies CreateSnapshotDto),
       );
+      createdSnapshotId = snapshot.id;
       await this.releaseAssembliesRepository.updateSnapshotId(assembly.id, snapshot.id);
 
       await this.runMeasuredStep(assembly.id, 'register_release', async () => {
@@ -96,6 +114,7 @@ export class ReleaseAssemblyService {
           },
         });
       });
+      releaseRegistered = true;
 
       await this.runMeasuredStep(assembly.id, 'audit', async () => {
         await this.eventsClient.ingestEvent({
@@ -134,9 +153,8 @@ export class ReleaseAssemblyService {
       );
 
       try {
-        const row = await this.releaseAssembliesRepository.findById(assembly.id);
-        if (row?.snapshotId) {
-          await this.snapshotsService.updateStatus(row.snapshotId, SnapshotStatus.FAILED);
+        if (createdSnapshotId !== undefined && !releaseRegistered) {
+          await this.snapshotsService.updateStatus(createdSnapshotId, SnapshotStatus.FAILED);
         }
       } catch (snapshotError) {
         const snapshotMessage = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
@@ -229,7 +247,7 @@ export class ReleaseAssemblyService {
     };
   }
 
-  async validateConfig(dto: ValidateConfigDto): Promise<{ valid: boolean; errors: string[] }> {
+  async validateConfig(dto: ValidateConfigDto): Promise<ValidationResult> {
     const collected = await this.configCollectorService.collect({
       projectId: dto.projectId,
       artifactKey: dto.artifactKey,
@@ -260,15 +278,17 @@ export class ReleaseAssemblyService {
 
   private async runMeasuredStep<T>(assemblyId: string, stepName: string, action: () => Promise<T>): Promise<T> {
     const stopTimer = this.metricsService.startPipelineStepTimer(stepName);
-    await this.updateStep(assemblyId, stepName, 'in_progress');
     try {
-      const result = await action();
-      await this.updateStep(assemblyId, stepName, 'completed');
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Step failed';
-      await this.updateStep(assemblyId, stepName, 'failed', message);
-      throw error;
+      await this.updateStep(assemblyId, stepName, 'in_progress');
+      try {
+        const result = await action();
+        await this.updateStep(assemblyId, stepName, 'completed');
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Step failed';
+        await this.updateStep(assemblyId, stepName, 'failed', message);
+        throw error;
+      }
     } finally {
       stopTimer();
     }

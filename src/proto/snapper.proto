@@ -95,9 +95,15 @@ message ValidateConfigRequest {
   string artifactKey = 2;
 }
 
+message ConfigFatalError {
+  string code = 1;
+  string message = 2;
+}
+
 message ValidateConfigResponse {
   bool valid = 1;
   repeated string errors = 2;
+  repeated ConfigFatalError fatalErrors = 3;
 }
 
 service SnapperService {
