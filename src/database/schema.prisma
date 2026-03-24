@@ -5,5 +5,62 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
+enum SnapshotStatus {
+  BUILDING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum AssemblyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Snapshot {
+  id          String         @id @default(uuid())
+  projectId   String
+  version     String
+  status      SnapshotStatus @default(BUILDING)
+  artifactKey String
+  checksum    String?
+  sizeBytes   BigInt         @default(0)
+  config      Json           @default("{}")
+  metadata    Json           @default("{}")
+  createdBy   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  expiresAt   DateTime?
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@unique([projectId, version])
+  @@map("snapshots")
+}
+
+model ReleaseAssembly {
+  id           String         @id @default(uuid())
+  snapshotId   String?
+  projectId    String
+  status       AssemblyStatus @default(IN_PROGRESS)
+  steps        Json           @default("[]")
+  errorMessage String?
+  createdBy    String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  completedAt  DateTime?
+
+  snapshot Snapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId])
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("release_assemblies")
+}

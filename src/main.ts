@@ -5,6 +5,7 @@ import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ReflectionService } from '@grpc/reflection';
 
@@ -39,7 +40,9 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const grpcPort = configService.app.grpcPort;
-  const protoPath = join(process.cwd(), 'src/proto/snapper.proto');
+  const distProtoPath = join(process.cwd(), 'dist/proto/snapper.proto');
+  const srcProtoPath = join(process.cwd(), 'src/proto/snapper.proto');
+  const protoPath = existsSync(distProtoPath) ? distProtoPath : srcProtoPath;
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
