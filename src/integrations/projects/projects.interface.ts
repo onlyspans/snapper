@@ -1,5 +1,7 @@
 import type { Observable } from 'rxjs';
 
+export type GrpcTimestampField = string | { seconds: number; nanos: number };
+
 export interface GetReleaseStructureRequest {
   id: string;
 }
@@ -41,8 +43,8 @@ export interface Release {
   notes: string;
   structure: ProjectReleaseStructure;
   metadata: Record<string, string>;
-  created_at?: unknown;
-  updated_at?: unknown;
+  created_at?: GrpcTimestampField;
+  updated_at?: GrpcTimestampField;
 }
 
 export interface ReleasesGrpcService {

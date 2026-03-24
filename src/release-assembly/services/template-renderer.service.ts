@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isResolvedVariablesSuccess } from '@integrations/variables';
 import { CollectedConfig } from '../interfaces';
 
 @Injectable()
@@ -20,11 +21,12 @@ export class TemplateRendererService {
           }
         : null,
       // Variables keys stay as placeholders by design; no secret resolution here.
-      variableKeys:
-        collected.variables.success?.variables.map((variable) => ({
-          key: variable.key,
-          source: variable.source,
-        })) ?? [],
+      variableKeys: isResolvedVariablesSuccess(collected.variables)
+        ? collected.variables.success.variables.map((variable) => ({
+            key: variable.key,
+            source: variable.source,
+          }))
+        : [],
     };
   }
 }

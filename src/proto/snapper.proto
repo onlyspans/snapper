@@ -3,7 +3,6 @@ syntax = "proto3";
 package snapper.v1;
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/empty.proto";
 
 message HealthCheckRequest {
   string service = 1;

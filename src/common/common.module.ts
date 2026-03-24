@@ -1,5 +1,5 @@
-import { Global, Module } from '@nestjs/common';
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
+import { ClassSerializerInterceptor, Global, Module } from '@nestjs/common';
+import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE, Reflector } from '@nestjs/core';
 import { AllExceptionsFilter, GrpcExceptionFilter } from './filters';
 import { LoggingInterceptor, TimeoutInterceptor } from './interceptors';
 import { AppLogger, CorrelationContextService } from './logging';
@@ -20,6 +20,11 @@ import { ParseUuidPipe, ValidationPipe } from './pipes';
     {
       provide: APP_INTERCEPTOR,
       useClass: TimeoutInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useFactory: (reflector: Reflector) => new ClassSerializerInterceptor(reflector),
+      inject: [Reflector],
     },
     {
       provide: APP_PIPE,

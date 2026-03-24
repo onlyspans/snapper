@@ -13,7 +13,8 @@ export class LoggingInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const startedAt = Date.now();
-    const type = context.getType<'http' | 'rpc'>();
+    const rawType = context.getType<string>();
+    const type: 'http' | 'rpc' | 'ws' = rawType === 'http' || rawType === 'ws' ? rawType : 'rpc';
     const correlationId = this.extractCorrelationId(context, type);
 
     const contextInfo =
@@ -22,7 +23,20 @@ export class LoggingInterceptor implements NestInterceptor {
             const request = context.switchToHttp().getRequest<{ method?: string; url?: string }>();
             return `${request.method ?? 'UNKNOWN'} ${request.url ?? 'unknown-route'}`;
           })()
-        : context.getHandler().name;
+        : type === 'ws'
+          ? (() => {
+              try {
+                const client = context.switchToWs().getClient<{
+                  handshake?: { headers?: Record<string, string | string[] | undefined>; url?: string };
+                }>();
+                const pattern = context.getHandler()?.name ?? 'unknown';
+                const path = client.handshake?.url ?? 'ws';
+                return `${pattern} ${path}`;
+              } catch {
+                return context.getHandler().name;
+              }
+            })()
+          : context.getHandler().name;
 
     this.correlationContext.enterWith(correlationId);
     return next.handle().pipe(
@@ -36,6 +50,7 @@ export class LoggingInterceptor implements NestInterceptor {
       }),
       catchError((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
+        const stackOrCause = error instanceof Error ? error.stack : error;
         this.logger.error(
           {
             message: 'Request failed',
@@ -44,14 +59,14 @@ export class LoggingInterceptor implements NestInterceptor {
             durationMs: Date.now() - startedAt,
             error: message,
           },
-          undefined,
+          stackOrCause,
         );
         throw error;
       }),
     );
   }
 
-  private extractCorrelationId(context: ExecutionContext, type: 'http' | 'rpc'): string {
+  private extractCorrelationId(context: ExecutionContext, type: 'http' | 'rpc' | 'ws'): string {
     if (type === 'http') {
       const request = context.switchToHttp().getRequest<{ headers?: Record<string, string | string[] | undefined> }>();
       const headerValue = request.headers?.['x-correlation-id'] ?? request.headers?.['correlation-id'];
@@ -59,6 +74,30 @@ export class LoggingInterceptor implements NestInterceptor {
         return headerValue[0] ?? createUuid();
       }
       return headerValue?.trim() || createUuid();
+    }
+
+    if (type === 'ws') {
+      try {
+        const client = context.switchToWs().getClient<{
+          handshake?: { headers?: Record<string, string | string[] | undefined> };
+          data?: { correlationId?: string };
+        }>();
+        const fromData = typeof client.data?.correlationId === 'string' ? client.data.correlationId.trim() : '';
+        if (fromData.length > 0) {
+          return fromData;
+        }
+        const headers = client.handshake?.headers;
+        const headerValue = headers?.['x-correlation-id'] ?? headers?.['correlation-id'] ?? headers?.['x-request-id'];
+        if (Array.isArray(headerValue)) {
+          return headerValue[0]?.trim() || createUuid();
+        }
+        if (typeof headerValue === 'string' && headerValue.trim().length > 0) {
+          return headerValue.trim();
+        }
+      } catch {
+        // fall through to uuid
+      }
+      return createUuid();
     }
 
     const metadata = context.switchToRpc().getContext<Metadata | undefined>();

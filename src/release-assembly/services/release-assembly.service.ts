@@ -1,5 +1,5 @@
-import { Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { AssemblyStatus, Prisma } from '@database/generated/client';
+import { ConflictException, Injectable, Logger, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { AssemblyStatus, Prisma, SnapshotStatus } from '@database/generated/client';
 import { EventsClient } from '@integrations/events';
 import { MetricsService } from '@metrics/metrics.service';
 import { ProjectsClient } from '@integrations/projects';
@@ -121,6 +121,7 @@ export class ReleaseAssemblyService {
       return this.getAssemblyStatus(assembly.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown release assembly failure';
+      const stackOrCause = error instanceof Error ? error.stack : String(error);
       this.logger.error(
         {
           message: 'Release assembly failed',
@@ -129,8 +130,23 @@ export class ReleaseAssemblyService {
           version: dto.version,
           error: message,
         },
-        undefined,
+        stackOrCause,
       );
+
+      try {
+        const row = await this.releaseAssembliesRepository.findById(assembly.id);
+        if (row?.snapshotId) {
+          await this.snapshotsService.updateStatus(row.snapshotId, SnapshotStatus.FAILED);
+        }
+      } catch (snapshotError) {
+        const snapshotMessage = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
+        this.logger.warn({
+          message: 'Could not mark snapshot FAILED after assembly failure',
+          assemblyId: assembly.id,
+          error: snapshotMessage,
+        });
+      }
+
       await this.releaseAssembliesRepository.updateStatus(assembly.id, AssemblyStatus.FAILED, message);
       this.metricsService.recordAssemblyFailed();
       throw error;
@@ -172,6 +188,15 @@ export class ReleaseAssemblyService {
           status: existingAssembly.status,
         });
         return { assembly: existingAssembly, isExisting: true };
+      }
+      if (existingAssembly?.status === AssemblyStatus.FAILED) {
+        this.logger.log({
+          message: 'Assembly conflict: existing failed assembly',
+          assemblyId: existingAssembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+        });
+        throw new ConflictException('Assembly conflict: existing failed assembly');
       }
       throw error;
     }

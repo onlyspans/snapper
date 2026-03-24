@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { isResolvedVariablesConflict, isResolvedVariablesInternalError } from '@integrations/variables';
 import { CollectedConfig } from '../interfaces';
 
 export interface ValidationResult {
@@ -15,13 +16,13 @@ export class ConfigValidatorService {
       errors.push('Projects service returned empty project_id');
     }
 
-    if (collected.variables.conflict_error) {
+    if (isResolvedVariablesConflict(collected.variables)) {
       errors.push(
         `Variables conflict for key "${collected.variables.conflict_error.key}" (${collected.variables.conflict_error.conflicting_sources.join(', ')})`,
       );
     }
 
-    if (collected.variables.internal_error?.message) {
+    if (isResolvedVariablesInternalError(collected.variables)) {
       errors.push(`Variables internal error: ${collected.variables.internal_error.message}`);
     }
 
