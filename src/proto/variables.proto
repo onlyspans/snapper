@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package variables;
+
+option csharp_namespace = "Variables.Communication";
+
+service VariablesService {
+  // Called by snapper to get resolved variables for snapshot
+  rpc GetResolvedVariables(GetResolvedVariablesInput) returns (GetResolvedVariablesResult);
+}
+
+message GetResolvedVariablesInput {
+  string project_id = 1;
+  string environment_id = 2;
+}
+
+message GetResolvedVariablesResult {
+  message Success {
+    repeated Variable variables = 1;
+  }
+
+  message ConflictError {
+    string key = 1;
+    repeated string conflicting_sources = 2;
+  }
+
+  oneof result {
+    Success success = 1;
+    ConflictError conflict_error = 2;
+    InternalError internal_error = 3;
+  }
+}
+
+message Variable {
+  string key = 1;
+  string value = 2;
+  optional string environment_id = 3;
+  string source = 4;  // "project" or variable set name
+}
+
+message InternalError {
+  string message = 1;
+}

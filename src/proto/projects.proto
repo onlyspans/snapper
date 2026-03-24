@@ -1,0 +1,242 @@
+syntax = "proto3";
+
+package projects.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Enums
+enum ProjectStatus {
+  PROJECT_STATUS_UNSPECIFIED = 0;
+  PROJECT_STATUS_ACTIVE = 1;
+  PROJECT_STATUS_ARCHIVED = 2;
+  PROJECT_STATUS_SUSPENDED = 3;
+}
+
+enum LifecycleStage {
+  LIFECYCLE_STAGE_UNSPECIFIED = 0;
+  LIFECYCLE_STAGE_DEVELOPMENT = 1;
+  LIFECYCLE_STAGE_TESTING = 2;
+  LIFECYCLE_STAGE_STAGING = 3;
+  LIFECYCLE_STAGE_PRODUCTION = 4;
+}
+
+// Messages
+message Project {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+  ProjectStatus status = 5;
+  string owner_id = 6;
+  repeated LifecycleStage lifecycle_stages = 7;
+  repeated string tag_ids = 8;
+  map<string, string> metadata = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message Release {
+  string id = 1;
+  string project_id = 2;
+  string version = 3;
+  string snapshot_id = 4;
+  string changelog = 5;
+  string notes = 6;
+  ReleaseStructure structure = 7;
+  map<string, string> metadata = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message ReleaseStructure {
+  string project_id = 1;
+  string project_name = 2;
+  string version = 3;
+  string snapshot_id = 4;
+  ReleaseConfig config = 5;
+  map<string, string> metadata = 6;
+}
+
+message ReleaseConfig {
+  repeated Process processes = 1;
+  map<string, string> variables = 2;
+  repeated Asset assets = 3;
+}
+
+message Process {
+  string id = 1;
+  string name = 2;
+  map<string, string> config = 3;
+}
+
+message Asset {
+  string id = 1;
+  string name = 2;
+  string url = 3;
+  map<string, string> metadata = 4;
+}
+
+// Projects Service Requests and Responses
+message GetProjectRequest {
+  string id = 1;
+}
+
+message ListProjectsRequest {
+  string owner_id = 1;
+  ProjectStatus status = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+  string search = 5;
+  repeated string tag_ids = 6;
+}
+
+message ListProjectsResponse {
+  repeated Project items = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message CreateProjectRequest {
+  string name = 1;
+  string slug = 2;
+  string description = 3;
+  ProjectStatus status = 4;
+  string owner_id = 5;
+  repeated LifecycleStage lifecycle_stages = 6;
+  repeated string tag_ids = 7;
+  map<string, string> metadata = 8;
+}
+
+message UpdateProjectRequest {
+  string id = 1;
+  string name = 2;
+  string slug = 3;
+  string description = 4;
+  ProjectStatus status = 5;
+  string owner_id = 6;
+  repeated LifecycleStage lifecycle_stages = 7;
+  repeated string tag_ids = 8;
+  map<string, string> metadata = 9;
+}
+
+message DeleteProjectRequest {
+  string id = 1;
+}
+
+message ProjectExistsRequest {
+  string id = 1;
+}
+
+message ProjectExistsResponse {
+  bool exists = 1;
+}
+
+// Releases Service Requests and Responses
+message GetReleaseRequest {
+  string id = 1;
+}
+
+message ListReleasesRequest {
+  string project_id = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  string version = 4;
+}
+
+message ListReleasesResponse {
+  repeated Release items = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 page_size = 4;
+}
+
+message CreateReleaseRequest {
+  string project_id = 1;
+  string version = 2;
+  string changelog = 3;
+  string notes = 4;
+  ReleaseStructure structure = 5;
+  map<string, string> metadata = 6;
+}
+
+message UpdateReleaseRequest {
+  string id = 1;
+  string snapshot_id = 2;
+  string changelog = 3;
+  string notes = 4;
+  ReleaseStructure structure = 5;
+  map<string, string> metadata = 6;
+}
+
+message UpdateReleaseStructureRequest {
+  string id = 1;
+  string snapshot_id = 2;
+  ReleaseStructure structure = 3;
+}
+
+message DeleteReleaseRequest {
+  string id = 1;
+}
+
+message GetReleaseStructureRequest {
+  string id = 1;
+}
+
+// Health Check (keeping existing)
+message HealthCheckRequest {
+  string service = 1;
+}
+
+message HealthCheckResponse {
+  string status = 1;
+  string message = 2;
+}
+
+// Services
+service ProjectsService {
+  // Health check
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+
+  // Получить проект по ID
+  rpc GetProject(GetProjectRequest) returns (Project);
+
+  // Получить список проектов
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+
+  // Создать проект
+  rpc CreateProject(CreateProjectRequest) returns (Project);
+
+  // Обновить проект
+  rpc UpdateProject(UpdateProjectRequest) returns (Project);
+
+  // Удалить проект
+  rpc DeleteProject(DeleteProjectRequest) returns (google.protobuf.Empty);
+
+  // Проверить существование проекта
+  rpc ProjectExists(ProjectExistsRequest) returns (ProjectExistsResponse);
+}
+
+service ReleasesService {
+  // Получить релиз по ID
+  rpc GetRelease(GetReleaseRequest) returns (Release);
+
+  // Получить список релизов проекта
+  rpc ListReleases(ListReleasesRequest) returns (ListReleasesResponse);
+
+  // Создать релиз
+  rpc CreateRelease(CreateReleaseRequest) returns (Release);
+
+  // Обновить релиз
+  rpc UpdateRelease(UpdateReleaseRequest) returns (Release);
+
+  // Обновить структуру релиза (вызывается snapper)
+  rpc UpdateReleaseStructure(UpdateReleaseStructureRequest) returns (Release);
+
+  // Удалить релиз
+  rpc DeleteRelease(DeleteReleaseRequest) returns (google.protobuf.Empty);
+
+  // Получить структуру релиза для snapper
+  rpc GetReleaseStructure(GetReleaseStructureRequest) returns (ReleaseStructure);
+}
