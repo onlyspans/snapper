@@ -1,0 +1,339 @@
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { AssemblyStatus, Prisma, SnapshotStatus } from '@database/generated/client';
+import { EventsClient } from '@integrations/events';
+import { MetricsService } from '@metrics/metrics.service';
+import { ProjectsClient } from '@integrations/projects';
+import { CreateSnapshotDto } from '@snapshots/dto';
+import { SnapshotsService } from '@snapshots/services';
+import { ArtifactNotificationDto, AssemblyStatusDto, ValidateConfigDto } from '../dto';
+import { AssemblyStep } from '../interfaces';
+import { ReleaseAssembliesRepository } from '../repositories';
+import { ConfigCollectorService } from './config-collector.service';
+import { ConfigValidatorService, ValidationResult } from './config-validator.service';
+import { TemplateRendererService } from './template-renderer.service';
+
+const VALIDATION_PLACEHOLDER_VERSION = 'validation';
+
+/** Thrown when events ingest fails after release was registered; assembly may still complete. */
+class AuditIngestNonFatalError extends Error {
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Audit ingest failed after release registration: ${detail}`);
+    this.name = 'AuditIngestNonFatalError';
+  }
+}
+
+@Injectable()
+export class ReleaseAssemblyService {
+  private readonly logger = new Logger(ReleaseAssemblyService.name);
+
+  constructor(
+    private readonly releaseAssembliesRepository: ReleaseAssembliesRepository,
+    private readonly configCollectorService: ConfigCollectorService,
+    private readonly configValidatorService: ConfigValidatorService,
+    private readonly templateRendererService: TemplateRendererService,
+    private readonly snapshotsService: SnapshotsService,
+    private readonly projectsClient: ProjectsClient,
+    private readonly eventsClient: EventsClient,
+    private readonly metricsService: MetricsService,
+  ) {}
+
+  async notifyArtifactsReady(dto: ArtifactNotificationDto): Promise<AssemblyStatusDto> {
+    const existingAssembly = await this.releaseAssembliesRepository.findByProjectAndVersion(dto.projectId, dto.version);
+    if (
+      existingAssembly &&
+      (existingAssembly.status === AssemblyStatus.IN_PROGRESS || existingAssembly.status === AssemblyStatus.COMPLETED)
+    ) {
+      this.logger.log({
+        message: 'Idempotent assembly hit',
+        assemblyId: existingAssembly.id,
+        projectId: dto.projectId,
+        version: dto.version,
+        status: existingAssembly.status,
+      });
+      return this.getAssemblyStatus(existingAssembly.id);
+    }
+
+    const assemblyCreation = await this.createAssemblyWithIdempotency(dto);
+    if (assemblyCreation.isExisting) {
+      return this.getAssemblyStatus(assemblyCreation.assembly.id);
+    }
+    const assembly = assemblyCreation.assembly;
+
+    let createdSnapshotId: string | undefined;
+    let releaseRegistered = false;
+
+    try {
+      const collected = await this.runMeasuredStep(assembly.id, 'collect', async () => {
+        return this.configCollectorService.collect({
+          projectId: dto.projectId,
+          artifactKey: dto.artifactKey,
+          version: dto.version,
+        });
+      });
+
+      await this.runMeasuredStep(assembly.id, 'validate', () => {
+        const validation = this.configValidatorService.validate(collected);
+        if (validation.fatalErrors.length > 0) {
+          throw new ServiceUnavailableException({
+            message: 'Integration error during configuration validation',
+            fatalErrors: validation.fatalErrors,
+          });
+        }
+        if (!validation.valid) {
+          throw new UnprocessableEntityException('Configuration validation failed', {
+            description: validation.errors.join('; '),
+          });
+        }
+        return Promise.resolve();
+      });
+
+      const normalizedPayload = await this.runMeasuredStep(assembly.id, 'normalize', async () =>
+        Promise.resolve(this.templateRendererService.normalize(collected)),
+      );
+
+      const snapshot = await this.runMeasuredStep(assembly.id, 'build_snapshot', async () => {
+        const created = await this.snapshotsService.create({
+          projectId: dto.projectId,
+          version: dto.version,
+          artifactKey: `snapshots/${dto.projectId}/${dto.version}.json`,
+          payload: normalizedPayload,
+          createdBy: dto.triggeredBy,
+        } satisfies CreateSnapshotDto);
+        createdSnapshotId = created.id;
+        await this.releaseAssembliesRepository.updateSnapshotId(assembly.id, created.id);
+        return created;
+      });
+
+      await this.runMeasuredStep(assembly.id, 'register_release', async () => {
+        await this.projectsClient.updateReleaseStructure({
+          id: dto.projectId,
+          snapshot_id: snapshot.id,
+          structure: {
+            project_id: dto.projectId,
+            project_name: collected.releaseStructure.project_name,
+            version: dto.version,
+            snapshot_id: snapshot.id,
+            config: collected.releaseStructure.config,
+            metadata: collected.releaseStructure.metadata,
+          },
+        });
+        releaseRegistered = true;
+      });
+
+      try {
+        await this.runMeasuredStep(assembly.id, 'audit', async () => {
+          try {
+            await this.eventsClient.ingestEvent({
+              entity_id: snapshot.id,
+              entity_name: 'snapshot',
+              action: 'release.assembled',
+              user_id: dto.triggeredBy ?? 'system',
+              ip_address: '0.0.0.0',
+              user_agent: 'snapper-microservice',
+              tenant: dto.projectId,
+              changes: [
+                {
+                  field: 'version',
+                  old_value: '',
+                  new_value: dto.version,
+                },
+              ],
+            });
+          } catch (ingestError) {
+            const ingestMessage = ingestError instanceof Error ? ingestError.message : String(ingestError);
+            this.logger.warn({
+              message:
+                'Audit ingestion failed after successful release registration; completing assembly without blocking (retry or reconcile events separately)',
+              assemblyId: assembly.id,
+              projectId: dto.projectId,
+              version: dto.version,
+              error: ingestMessage,
+            });
+            throw new AuditIngestNonFatalError(ingestError);
+          }
+        });
+      } catch (auditError) {
+        if (auditError instanceof AuditIngestNonFatalError) {
+          // runMeasuredStep already marked the audit step failed; assembly continues to COMPLETED.
+        } else {
+          throw auditError;
+        }
+      }
+
+      await this.releaseAssembliesRepository.updateStatus(assembly.id, AssemblyStatus.COMPLETED);
+      this.metricsService.recordAssemblyCompleted();
+      return this.getAssemblyStatus(assembly.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown release assembly failure';
+      const stackOrCause = error instanceof Error ? error.stack : String(error);
+      this.logger.error(
+        {
+          message: 'Release assembly failed',
+          assemblyId: assembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+          error: message,
+          releaseRegistered,
+        },
+        stackOrCause,
+      );
+
+      try {
+        if (createdSnapshotId !== undefined && !releaseRegistered) {
+          await this.snapshotsService.updateStatus(createdSnapshotId, SnapshotStatus.FAILED);
+        }
+      } catch (snapshotError) {
+        const snapshotMessage = snapshotError instanceof Error ? snapshotError.message : String(snapshotError);
+        this.logger.warn({
+          message: 'Could not mark snapshot FAILED after assembly failure',
+          assemblyId: assembly.id,
+          error: snapshotMessage,
+        });
+      }
+
+      await this.releaseAssembliesRepository.updateStatus(assembly.id, AssemblyStatus.FAILED, message);
+      this.metricsService.recordAssemblyFailed();
+      throw error;
+    }
+  }
+
+  private async createAssemblyWithIdempotency(
+    dto: ArtifactNotificationDto,
+  ): Promise<{ assembly: { id: string }; isExisting: boolean }> {
+    try {
+      const assembly = await this.releaseAssembliesRepository.create({
+        projectId: dto.projectId,
+        version: dto.version,
+        status: AssemblyStatus.IN_PROGRESS,
+        createdBy: dto.triggeredBy,
+        steps: this.initialSteps() as unknown as Prisma.InputJsonValue,
+      });
+      return { assembly, isExisting: false };
+    } catch (error) {
+      const isUniqueConstraintViolation =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+      if (!isUniqueConstraintViolation) {
+        throw error;
+      }
+
+      const existingAssembly = await this.releaseAssembliesRepository.findByProjectAndVersion(
+        dto.projectId,
+        dto.version,
+      );
+      if (
+        existingAssembly &&
+        (existingAssembly.status === AssemblyStatus.IN_PROGRESS || existingAssembly.status === AssemblyStatus.COMPLETED)
+      ) {
+        this.logger.log({
+          message: 'Concurrent idempotent assembly hit',
+          assemblyId: existingAssembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+          status: existingAssembly.status,
+        });
+        return { assembly: existingAssembly, isExisting: true };
+      }
+      if (existingAssembly?.status === AssemblyStatus.FAILED) {
+        this.logger.log({
+          message: 'Assembly conflict: existing failed assembly',
+          assemblyId: existingAssembly.id,
+          projectId: dto.projectId,
+          version: dto.version,
+        });
+        throw new ConflictException('Assembly conflict: existing failed assembly');
+      }
+      throw error;
+    }
+  }
+
+  async getAssemblyStatus(id: string): Promise<AssemblyStatusDto> {
+    const assembly = await this.releaseAssembliesRepository.findById(id);
+    if (!assembly) {
+      throw new NotFoundException(`Release assembly with id "${id}" not found`);
+    }
+
+    const steps = ((assembly.steps as unknown as AssemblyStep[]) ?? []).map((step) => ({
+      name: step.name,
+      status: step.status,
+      message: step.message,
+      updatedAt: step.updatedAt !== undefined ? new Date(step.updatedAt) : undefined,
+    }));
+
+    return {
+      id: assembly.id,
+      snapshotId: assembly.snapshotId ?? '',
+      projectId: assembly.projectId,
+      status: assembly.status,
+      steps,
+      errorMessage: assembly.errorMessage ?? '',
+      createdBy: assembly.createdBy ?? '',
+      createdAt: assembly.createdAt,
+      updatedAt: assembly.updatedAt,
+      completedAt: assembly.completedAt ?? undefined,
+    };
+  }
+
+  async validateConfig(dto: ValidateConfigDto): Promise<ValidationResult> {
+    const collected = await this.configCollectorService.collect({
+      projectId: dto.projectId,
+      artifactKey: dto.artifactKey,
+      version: VALIDATION_PLACEHOLDER_VERSION,
+    });
+    return this.configValidatorService.validate(collected);
+  }
+
+  private initialSteps(): AssemblyStep[] {
+    return [
+      { name: 'collect', status: 'pending' },
+      { name: 'validate', status: 'pending' },
+      { name: 'normalize', status: 'pending' },
+      { name: 'build_snapshot', status: 'pending' },
+      { name: 'register_release', status: 'pending' },
+      { name: 'audit', status: 'pending' },
+    ];
+  }
+
+  private async updateStep(
+    assemblyId: string,
+    stepName: string,
+    status: AssemblyStep['status'],
+    message?: string,
+  ): Promise<void> {
+    await this.releaseAssembliesRepository.updateStep(assemblyId, stepName, status, message);
+  }
+
+  private async runMeasuredStep<T>(assemblyId: string, stepName: string, action: () => Promise<T>): Promise<T> {
+    const stopTimer = this.metricsService.startPipelineStepTimer(stepName);
+    try {
+      await this.updateStep(assemblyId, stepName, 'in_progress');
+      try {
+        const result = await action();
+        await this.updateStep(assemblyId, stepName, 'completed');
+        return result;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Step failed';
+        try {
+          await this.updateStep(assemblyId, stepName, 'failed', message);
+        } catch (persistError) {
+          this.logger.warn({
+            message: 'Could not persist failed pipeline step status',
+            assemblyId,
+            stepName,
+            error: persistError instanceof Error ? persistError.message : String(persistError),
+          });
+        }
+        throw error;
+      }
+    } finally {
+      stopTimer();
+    }
+  }
+}

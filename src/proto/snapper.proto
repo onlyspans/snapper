@@ -3,7 +3,6 @@ syntax = "proto3";
 package snapper.v1;
 
 import "google/protobuf/timestamp.proto";
-import "google/protobuf/empty.proto";
 
 message HealthCheckRequest {
   string service = 1;
@@ -14,6 +13,104 @@ message HealthCheckResponse {
   string message = 2;
 }
 
-service ProjectsService {
+message NotifyArtifactsReadyRequest {
+  string projectId = 1;
+  string artifactKey = 2;
+  string version = 3;
+  string triggeredBy = 4;
+}
+
+message AssemblyStep {
+  string name = 1;
+  string status = 2;
+  string message = 3;
+  google.protobuf.Timestamp updatedAt = 4;
+}
+
+message NotifyArtifactsReadyResponse {
+  string assemblyId = 1;
+  string snapshotId = 2;
+  string projectId = 3;
+  string status = 4;
+  string errorMessage = 5;
+  repeated AssemblyStep steps = 6;
+  google.protobuf.Timestamp createdAt = 7;
+  google.protobuf.Timestamp updatedAt = 8;
+  google.protobuf.Timestamp completedAt = 9;
+}
+
+message GetSnapshotRequest {
+  string id = 1;
+}
+
+message SnapshotResponse {
+  string id = 1;
+  string projectId = 2;
+  string version = 3;
+  string status = 4;
+  string artifactKey = 5;
+  string checksum = 6;
+  int64 sizeBytes = 7;
+  string createdBy = 8;
+  google.protobuf.Timestamp createdAt = 9;
+  google.protobuf.Timestamp updatedAt = 10;
+  google.protobuf.Timestamp expiresAt = 11;
+}
+
+message ListSnapshotsRequest {
+  string projectId = 1;
+  string status = 2;
+  string version = 3;
+  int32 page = 4;
+  int32 pageSize = 5;
+}
+
+message ListSnapshotsResponse {
+  repeated SnapshotResponse items = 1;
+  int32 total = 2;
+  int32 page = 3;
+  int32 pageSize = 4;
+  int32 totalPages = 5;
+}
+
+message GetAssemblyStatusRequest {
+  string id = 1;
+}
+
+message GetAssemblyStatusResponse {
+  string id = 1;
+  string snapshotId = 2;
+  string projectId = 3;
+  string status = 4;
+  repeated AssemblyStep steps = 5;
+  string errorMessage = 6;
+  string createdBy = 7;
+  google.protobuf.Timestamp createdAt = 8;
+  google.protobuf.Timestamp updatedAt = 9;
+  google.protobuf.Timestamp completedAt = 10;
+}
+
+message ValidateConfigRequest {
+  string projectId = 1;
+  string artifactKey = 2;
+}
+
+message ConfigFatalError {
+  string code = 1;
+  string message = 2;
+}
+
+message ValidateConfigResponse {
+  bool valid = 1;
+  repeated string errors = 2;
+  repeated ConfigFatalError fatalErrors = 3;
+}
+
+service SnapperService {
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+  rpc NotifyArtifactsReady (NotifyArtifactsReadyRequest) returns (NotifyArtifactsReadyResponse);
+  rpc GetSnapshot (GetSnapshotRequest) returns (SnapshotResponse);
+  rpc ListSnapshots (ListSnapshotsRequest) returns (ListSnapshotsResponse);
+  rpc GetAssemblyStatus (GetAssemblyStatusRequest) returns (GetAssemblyStatusResponse);
+  rpc ValidateConfig (ValidateConfigRequest) returns (ValidateConfigResponse);
 }

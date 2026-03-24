@@ -16,6 +16,8 @@
       "@config/*": ["src/config/*"],
       "@database/*": ["src/database/*"],
       "@integrations/*": ["src/integrations/*"],
+      "@release-assembly/*": ["src/release-assembly/*"],
+      "@snapshots/*": ["src/snapshots/*"],
       "@metrics/*": ["src/metrics/*"],
       "@proto/*": ["src/proto/*"],
     },

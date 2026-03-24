@@ -14,7 +14,15 @@ export interface DatabaseConfig {
   logLevel: 'info' | 'warn' | 'error';
 }
 
+export interface GrpcServicesConfig {
+  projectsUrl: string;
+  variablesUrl: string;
+  artifactStorageUrl: string;
+  eventsUrl: string;
+}
+
 export interface AppConfig {
   app: ApplicationConfig;
   database: DatabaseConfig;
+  grpc: GrpcServicesConfig;
 }

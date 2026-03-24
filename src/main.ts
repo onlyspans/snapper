@@ -1,34 +1,21 @@
-import { NestFactory, Reflector } from '@nestjs/core';
+import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@config/config.service';
-import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
-import { join } from 'path';
+import { resolveRepoProtoPath } from '@common/utils';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ReflectionService } from '@grpc/reflection';
+import { AppLogger } from '@common/logging';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = app.get(AppLogger);
+  app.useLogger(logger);
 
   const configService = app.get(ConfigService);
 
-  app.setGlobalPrefix('api', { exclude: ['healthz', 'readyz'] });
+  app.setGlobalPrefix('api', { exclude: ['healthz', 'readyz', 'metrics'] });
   app.enableCors(configService.app.cors);
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-
-  app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
-  app.useGlobalFilters(new HttpExceptionFilter());
 
   const config = new DocumentBuilder()
     .setTitle('Snapper Microservice API')
@@ -39,7 +26,7 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const grpcPort = configService.app.grpcPort;
-  const protoPath = join(process.cwd(), 'src/proto/snapper.proto');
+  const protoPath = resolveRepoProtoPath('snapper.proto');
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
@@ -57,9 +44,18 @@ async function bootstrap() {
   const port = configService.app.port;
   await app.listen(port);
 
-  console.log(`🚀 HTTP Server (REST API) is running on: http://localhost:${port}/api`);
-  console.log(`📚 Swagger documentation: http://localhost:${port}/api-docs`);
-  console.log(`🔌 gRPC Microservice is running on: 0.0.0.0:${grpcPort}`);
+  logger.log({
+    message: 'HTTP server started',
+    url: `http://localhost:${port}/api`,
+  });
+  logger.log({
+    message: 'Swagger docs started',
+    url: `http://localhost:${port}/api-docs`,
+  });
+  logger.log({
+    message: 'gRPC server started',
+    url: `0.0.0.0:${grpcPort}`,
+  });
 }
 
 void bootstrap();
