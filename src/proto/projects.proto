@@ -13,15 +13,14 @@ enum ProjectStatus {
   PROJECT_STATUS_SUSPENDED = 3;
 }
 
-enum LifecycleStage {
-  LIFECYCLE_STAGE_UNSPECIFIED = 0;
-  LIFECYCLE_STAGE_DEVELOPMENT = 1;
-  LIFECYCLE_STAGE_TESTING = 2;
-  LIFECYCLE_STAGE_STAGING = 3;
-  LIFECYCLE_STAGE_PRODUCTION = 4;
+// Messages
+message Environment {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int32 position = 4;
 }
 
-// Messages
 message Project {
   string id = 1;
   string name = 2;
@@ -29,7 +28,7 @@ message Project {
   string description = 4;
   ProjectStatus status = 5;
   string owner_id = 6;
-  repeated LifecycleStage lifecycle_stages = 7;
+  repeated Environment environments = 7;
   repeated string tag_ids = 8;
   map<string, string> metadata = 9;
   google.protobuf.Timestamp created_at = 10;
@@ -104,7 +103,7 @@ message CreateProjectRequest {
   string description = 3;
   ProjectStatus status = 4;
   string owner_id = 5;
-  repeated LifecycleStage lifecycle_stages = 6;
+  repeated string environment_ids = 6;
   repeated string tag_ids = 7;
   map<string, string> metadata = 8;
 }
@@ -116,7 +115,7 @@ message UpdateProjectRequest {
   string description = 4;
   ProjectStatus status = 5;
   string owner_id = 6;
-  repeated LifecycleStage lifecycle_stages = 7;
+  repeated string environment_ids = 7;
   repeated string tag_ids = 8;
   map<string, string> metadata = 9;
 }

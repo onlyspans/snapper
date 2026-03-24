@@ -2,6 +2,27 @@ import type { Observable } from 'rxjs';
 
 export type GrpcTimestampField = string | { seconds: number; nanos: number };
 
+export interface Environment {
+  id: string;
+  name: string;
+  description: string;
+  position: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  status: number;
+  owner_id: string;
+  environments: Environment[];
+  tag_ids: string[];
+  metadata: Record<string, string>;
+  created_at?: GrpcTimestampField;
+  updated_at?: GrpcTimestampField;
+}
+
 export interface GetReleaseStructureRequest {
   id: string;
 }
