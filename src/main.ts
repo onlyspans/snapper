@@ -1,9 +1,8 @@
 import { NestFactory, Reflector } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ConfigService } from '@config/config.service';
-import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
+import { ClassSerializerInterceptor } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { HttpExceptionFilter } from '@common/filters/http-exception.filter';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
@@ -17,19 +16,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api', { exclude: ['healthz', 'readyz'] });
   app.enableCors(configService.app.cors);
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
-    }),
-  );
-
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
-  app.useGlobalFilters(new HttpExceptionFilter());
 
   const config = new DocumentBuilder()
     .setTitle('Snapper Microservice API')
