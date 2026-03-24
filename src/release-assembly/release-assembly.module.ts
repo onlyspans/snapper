@@ -7,6 +7,7 @@ import { ReleaseAssemblyGrpcController } from './grpc';
 import { ReleaseAssembliesRepository } from './repositories';
 import {
   ConfigCollectorService,
+  ProjectsCacheService,
   ConfigValidatorService,
   ReleaseAssemblyService,
   TemplateRendererService,
@@ -19,6 +20,7 @@ import {
     ReleaseAssembliesRepository,
     ReleaseAssemblyService,
     ConfigCollectorService,
+    ProjectsCacheService,
     ConfigValidatorService,
     TemplateRendererService,
   ],

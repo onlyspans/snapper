@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { ConfigModule } from '@config/config.module';
@@ -12,6 +13,7 @@ import { MetricsModule } from '@/metrics';
 @Module({
   imports: [
     ConfigModule,
+    ScheduleModule.forRoot(),
     DatabaseModule,
     CommonModule,
     IntegrationsModule,
