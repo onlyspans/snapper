@@ -39,8 +39,7 @@ COPY --from=builder /app/node_modules ./node_modules
 # Copy generated Prisma client next to compiled code (runtime require path)
 COPY --from=builder /app/src/database/generated ./dist/database/generated
 
-# Uncomment when using gRPC (create src/proto and add .proto files first):
-# COPY --from=builder /app/src/proto ./dist/proto
+COPY --from=builder /app/src/proto ./dist/proto
 
 # Expose HTTP and gRPC ports
 EXPOSE 4010 4011
