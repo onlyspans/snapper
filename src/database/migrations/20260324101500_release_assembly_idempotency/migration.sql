@@ -2,9 +2,9 @@
 ALTER TABLE "release_assemblies"
 ADD COLUMN "version" TEXT;
 
--- Backfill existing rows with fallback value to keep migration safe
+-- Backfill NULL version with a per-row unique value so (projectId, version) can be indexed
 UPDATE "release_assemblies"
-SET "version" = COALESCE("version", 'unknown');
+SET "version" = COALESCE("version", 'unknown-' || "id"::text);
 
 -- Enforce NOT NULL and uniqueness for project/version pair
 ALTER TABLE "release_assemblies"

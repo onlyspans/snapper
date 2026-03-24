@@ -186,6 +186,8 @@ export class ReleaseAssemblyService {
     const steps = ((assembly.steps as unknown as AssemblyStep[]) ?? []).map((step) => ({
       name: step.name,
       status: step.status,
+      message: step.message,
+      updatedAt: step.updatedAt !== undefined ? new Date(step.updatedAt) : undefined,
     }));
 
     return {

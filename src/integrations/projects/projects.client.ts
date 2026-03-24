@@ -9,6 +9,7 @@ import { createCorrelationMetadata } from '../correlation-metadata.util';
 import {
   GetReleaseStructureRequest,
   ProjectReleaseStructure,
+  Release,
   ReleasesGrpcService,
   UpdateReleaseStructureRequest,
 } from './projects.interface';
@@ -33,22 +34,20 @@ export class ProjectsClient implements OnModuleInit {
   }
 
   async getReleaseStructure(request: GetReleaseStructureRequest): Promise<ProjectReleaseStructure> {
-    return this.executeWithResilience<ProjectReleaseStructure>(
-      () =>
-        this.releasesService.GetReleaseStructure(
-          request,
-          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
-        ) as Observable<ProjectReleaseStructure>,
+    return this.executeWithResilience<ProjectReleaseStructure>(() =>
+      this.releasesService.GetReleaseStructure(
+        request,
+        createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+      ),
     );
   }
 
-  async updateReleaseStructure(request: UpdateReleaseStructureRequest): Promise<ProjectReleaseStructure> {
-    return this.executeWithResilience<ProjectReleaseStructure>(
-      () =>
-        this.releasesService.UpdateReleaseStructure(
-          request,
-          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
-        ) as Observable<ProjectReleaseStructure>,
+  async updateReleaseStructure(request: UpdateReleaseStructureRequest): Promise<Release> {
+    return this.executeWithResilience<Release>(() =>
+      this.releasesService.UpdateReleaseStructure(
+        request,
+        createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+      ),
     );
   }
 

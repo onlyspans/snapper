@@ -24,6 +24,8 @@ message NotifyArtifactsReadyRequest {
 message AssemblyStep {
   string name = 1;
   string status = 2;
+  string message = 3;
+  google.protobuf.Timestamp updatedAt = 4;
 }
 
 message NotifyArtifactsReadyResponse {

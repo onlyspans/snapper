@@ -39,21 +39,26 @@ export class ReleaseAssembliesRepository {
     status: AssemblyStep['status'],
     message?: string,
   ): Promise<ReleaseAssembly> {
-    const assembly = await this.findById(id);
-    if (!assembly) {
-      throw new NotFoundException(`Release assembly "${id}" not found`);
-    }
+    return this.db.$transaction(
+      async (tx) => {
+        const assembly = await tx.releaseAssembly.findUnique({ where: { id } });
+        if (!assembly) {
+          throw new NotFoundException(`Release assembly "${id}" not found`);
+        }
 
-    const currentSteps = (assembly.steps as unknown as AssemblyStep[]) ?? [];
-    const updatedAt = new Date().toISOString();
-    const nextSteps = currentSteps.map((step) =>
-      step.name === stepName ? { ...step, status, message, updatedAt } : step,
+        const currentSteps = (assembly.steps as unknown as AssemblyStep[]) ?? [];
+        const updatedAt = new Date().toISOString();
+        const nextSteps = currentSteps.map((step) =>
+          step.name === stepName ? { ...step, status, message, updatedAt } : step,
+        );
+
+        return tx.releaseAssembly.update({
+          where: { id },
+          data: { steps: nextSteps as unknown as Prisma.InputJsonValue },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-
-    return this.db.releaseAssembly.update({
-      where: { id },
-      data: { steps: nextSteps as unknown as Prisma.InputJsonValue },
-    });
   }
 
   async updateSnapshotId(id: string, snapshotId: string): Promise<ReleaseAssembly> {

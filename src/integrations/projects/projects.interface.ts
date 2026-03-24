@@ -1,3 +1,5 @@
+import type { Observable } from 'rxjs';
+
 export interface GetReleaseStructureRequest {
   id: string;
 }
@@ -30,8 +32,21 @@ export interface UpdateReleaseStructureRequest {
   structure: ProjectReleaseStructure;
 }
 
-export interface ReleasesGrpcService {
-  GetReleaseStructure(request: GetReleaseStructureRequest, metadata?: unknown): unknown;
+export interface Release {
+  id: string;
+  project_id: string;
+  version: string;
+  snapshot_id: string;
+  changelog: string;
+  notes: string;
+  structure: ProjectReleaseStructure;
+  metadata: Record<string, string>;
+  created_at?: unknown;
+  updated_at?: unknown;
+}
 
-  UpdateReleaseStructure(request: UpdateReleaseStructureRequest, metadata?: unknown): unknown;
+export interface ReleasesGrpcService {
+  GetReleaseStructure(request: GetReleaseStructureRequest, metadata?: unknown): Observable<ProjectReleaseStructure>;
+
+  UpdateReleaseStructure(request: UpdateReleaseStructureRequest, metadata?: unknown): Observable<Release>;
 }

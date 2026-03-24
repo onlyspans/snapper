@@ -1,15 +1,24 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { CorrelationContextService } from '@common/logging';
 import { Request, Response } from 'express';
+import { Observable } from 'rxjs';
+import { GrpcExceptionFilter } from './grpc-exception.filter';
 
 @Catch()
 @Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  constructor(private readonly correlationContext: CorrelationContextService) {}
+  constructor(
+    private readonly correlationContext: CorrelationContextService,
+    private readonly grpcExceptionFilter: GrpcExceptionFilter,
+  ) {}
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  catch(exception: unknown, host: ArgumentsHost): void | Observable<unknown> {
+    if (host.getType() === 'rpc') {
+      return this.grpcExceptionFilter.catch(exception, host);
+    }
+
     if (host.getType() !== 'http') {
       return;
     }

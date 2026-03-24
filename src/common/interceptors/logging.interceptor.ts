@@ -1,6 +1,6 @@
 import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import { Metadata } from '@grpc/grpc-js';
-import { Observable, defer } from 'rxjs';
+import { Observable } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
 import { createUuid } from '@common/utils';
 import { CorrelationContextService } from '@common/logging';
@@ -24,33 +24,30 @@ export class LoggingInterceptor implements NestInterceptor {
           })()
         : context.getHandler().name;
 
-    return defer(() =>
-      this.correlationContext.run(correlationId, () =>
-        next.handle().pipe(
-          tap(() => {
-            this.logger.log({
-              message: 'Request completed',
-              transport: type,
-              target: contextInfo,
-              durationMs: Date.now() - startedAt,
-            });
-          }),
-          catchError((error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
-            this.logger.error(
-              {
-                message: 'Request failed',
-                transport: type,
-                target: contextInfo,
-                durationMs: Date.now() - startedAt,
-                error: message,
-              },
-              undefined,
-            );
-            throw error;
-          }),
-        ),
-      ),
+    this.correlationContext.enterWith(correlationId);
+    return next.handle().pipe(
+      tap(() => {
+        this.logger.log({
+          message: 'Request completed',
+          transport: type,
+          target: contextInfo,
+          durationMs: Date.now() - startedAt,
+        });
+      }),
+      catchError((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          {
+            message: 'Request failed',
+            transport: type,
+            target: contextInfo,
+            durationMs: Date.now() - startedAt,
+            error: message,
+          },
+          undefined,
+        );
+        throw error;
+      }),
     );
   }
 

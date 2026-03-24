@@ -8,13 +8,10 @@ import { ParseUuidPipe, ValidationPipe } from './pipes';
 @Global()
 @Module({
   providers: [
+    GrpcExceptionFilter,
     {
       provide: APP_FILTER,
       useClass: AllExceptionsFilter,
-    },
-    {
-      provide: APP_FILTER,
-      useClass: GrpcExceptionFilter,
     },
     {
       provide: APP_INTERCEPTOR,

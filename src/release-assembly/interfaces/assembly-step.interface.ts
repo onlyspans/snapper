@@ -4,5 +4,5 @@ export interface AssemblyStep {
   name: string;
   status: AssemblyStepStatus;
   message?: string;
-  updatedAt?: string;
+  updatedAt?: string | Date;
 }

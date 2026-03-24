@@ -14,6 +14,10 @@ export class CorrelationContextService {
     return this.asyncLocalStorage.run({ correlationId }, callback);
   }
 
+  enterWith(correlationId: string): void {
+    this.asyncLocalStorage.enterWith({ correlationId });
+  }
+
   getCorrelationId(): string {
     return this.asyncLocalStorage.getStore()?.correlationId ?? createUuid();
   }

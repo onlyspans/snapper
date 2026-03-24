@@ -5,7 +5,7 @@ import { Counter, Histogram, Registry, collectDefaultMetrics, exponentialBuckets
 export class MetricsService {
   readonly registry: Registry;
 
-  private readonly snapshotCreatedTotal: Counter<'project_id'>;
+  private readonly snapshotCreatedTotal: Counter;
   private readonly assemblyStatusTotal: Counter<'status'>;
   private readonly pipelineStepDurationSeconds: Histogram<'step'>;
 
@@ -16,7 +16,6 @@ export class MetricsService {
     this.snapshotCreatedTotal = new Counter({
       name: 'snapper_snapshot_created_total',
       help: 'Total number of created snapshots',
-      labelNames: ['project_id'],
       registers: [this.registry],
     });
 
@@ -40,8 +39,8 @@ export class MetricsService {
     return this.registry.metrics();
   }
 
-  recordSnapshotCreated(projectId: string): void {
-    this.snapshotCreatedTotal.inc({ project_id: projectId });
+  recordSnapshotCreated(): void {
+    this.snapshotCreatedTotal.inc();
   }
 
   recordAssemblyCompleted(): void {

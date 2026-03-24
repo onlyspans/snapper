@@ -10,6 +10,8 @@ export interface Variable {
   source: string;
 }
 
+import type { Observable } from 'rxjs';
+
 export interface GetResolvedVariablesResult {
   success?: {
     variables: Variable[];
@@ -24,5 +26,5 @@ export interface GetResolvedVariablesResult {
 }
 
 export interface VariablesGrpcService {
-  GetResolvedVariables(request: GetResolvedVariablesInput, metadata?: unknown): unknown;
+  GetResolvedVariables(request: GetResolvedVariablesInput, metadata?: unknown): Observable<GetResolvedVariablesResult>;
 }

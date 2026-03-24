@@ -3,8 +3,7 @@ import { AppModule } from './app.module';
 import { ConfigService } from '@config/config.service';
 import { ClassSerializerInterceptor } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { join } from 'path';
-import { existsSync } from 'fs';
+import { resolveRepoProtoPath } from '@common/utils';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ReflectionService } from '@grpc/reflection';
 import { AppLogger } from '@common/logging';
@@ -16,7 +15,7 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  app.setGlobalPrefix('api', { exclude: ['healthz', 'readyz'] });
+  app.setGlobalPrefix('api', { exclude: ['healthz', 'readyz', 'metrics'] });
   app.enableCors(configService.app.cors);
 
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
@@ -30,9 +29,7 @@ async function bootstrap() {
   SwaggerModule.setup('api-docs', app, document);
 
   const grpcPort = configService.app.grpcPort;
-  const distProtoPath = join(process.cwd(), 'dist/proto/snapper.proto');
-  const srcProtoPath = join(process.cwd(), 'src/proto/snapper.proto');
-  const protoPath = existsSync(distProtoPath) ? distProtoPath : srcProtoPath;
+  const protoPath = resolveRepoProtoPath('snapper.proto');
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,
     options: {
