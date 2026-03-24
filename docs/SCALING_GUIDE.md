@@ -9,11 +9,9 @@
 src/
 └── new-feature/
     ├── new-feature.module.ts
-    ├── controllers/
     ├── grpc/
     ├── services/
     ├── repositories/
-    ├── entities/
     ├── dto/
     ├── interfaces/
     └── __tests__/
@@ -32,45 +30,32 @@ import { NewFeatureModule } from './new-feature/new-feature.module';
 export class AppModule {}
 ```
 
-#### Шаг 3: Добавить миграции (если нужна новая таблица)
+#### Шаг 3: Добавить Prisma model и миграцию (если нужна новая таблица)
 ```bash
-src/database/migrations/
-└── 0004-CreateNewFeatureTable.ts
+# Добавить model в src/database/schema.prisma, затем:
+bunx prisma migrate dev --name add-new-feature-table
 ```
 
 #### Шаг 4: Обновить proto файлы (если нужен gRPC)
 ```bash
 src/proto/
-└── new-feature.proto
+└── snapper.proto    # Добавить новые rpc методы
 ```
 
-### 2. Добавление нового поля в существующую сущность
+### 2. Добавление нового поля в существующую модель
 
-#### Шаг 1: Обновить Entity
-```typescript
-// snapshots/entities/snapshot.entity.ts
-@Column({ type: 'varchar', length: 255, nullable: true, name: 'new_field' })
-newField: string | null;
+#### Шаг 1: Обновить Prisma schema
+```prisma
+// database/schema.prisma
+model Snapshot {
+  // ... существующие поля
+  newField  String?   @map("new_field")
+}
 ```
 
 #### Шаг 2: Создать миграцию
-```typescript
-// database/migrations/0005-AddNewFieldToSnapshots.ts
-import { MigrationInterface, QueryRunner } from 'typeorm';
-
-export class AddNewFieldToSnapshots0005 implements MigrationInterface {
-  async up(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      ALTER TABLE snapshots ADD COLUMN new_field VARCHAR(255);
-    `);
-  }
-
-  async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`
-      ALTER TABLE snapshots DROP COLUMN new_field;
-    `);
-  }
-}
+```bash
+bunx prisma migrate dev --name add-new-field-to-snapshots
 ```
 
 #### Шаг 3: Обновить DTOs
@@ -83,35 +68,23 @@ newField?: string;
 
 #### Шаг 4: Обновить сервис (если нужна бизнес-логика)
 
-### 3. Добавление нового эндпоинта
+### 3. Добавление нового gRPC эндпоинта
 
-#### REST эндпоинт
-```typescript
-// snapshots/controllers/snapshots.controller.ts
-@Get(':id/compare/:otherId')
-async compare(
-  @Param('id') id: string,
-  @Param('otherId') otherId: string,
-) {
-  return this.service.compare(id, otherId);
-}
-```
-
-#### gRPC метод
-```typescript
-// snapshots/grpc/snapshots.grpc.controller.ts
-@GrpcMethod('SnapperService', 'CompareSnapshots')
-async compareSnapshots(data: { id: string; otherId: string }) {
-  return this.service.compare(data.id, data.otherId);
-}
-```
-
-#### Не забыть обновить proto
+#### Обновить proto
 ```protobuf
 // proto/snapper.proto
 service SnapperService {
   // ... существующие методы
   rpc CompareSnapshots(CompareSnapshotsRequest) returns (CompareSnapshotsResponse);
+}
+```
+
+#### Добавить gRPC метод
+```typescript
+// snapshots/grpc/snapshots.grpc.controller.ts
+@GrpcMethod('SnapperService', 'CompareSnapshots')
+async compareSnapshots(data: { id: string; otherId: string }) {
+  return this.service.compare(data.id, data.otherId);
 }
 ```
 
@@ -129,7 +102,6 @@ src/integrations/
 
 #### Шаг 2: Реализовать клиент
 ```typescript
-// integrations/new-service/new-service.client.ts
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
@@ -152,10 +124,7 @@ export class NewServiceClient implements OnModuleInit {
   async getData(id: string) {
     this.logger.debug(`Getting data from new-service for ${id}`);
     return firstValueFrom(
-      this.service.GetData({ id }).pipe(
-        timeout(5000),
-        retry(3),
-      ),
+      this.service.GetData({ id }).pipe(timeout(5000), retry(3)),
     );
   }
 }
@@ -183,25 +152,16 @@ import { NewServiceClient } from './new-service/new-service.client';
 export class IntegrationsModule {}
 ```
 
-#### Шаг 4: Использовать в сервисе
-```typescript
-// orchestration/services/config-collector.service.ts
-constructor(
-  // ... существующие клиенты
-  private readonly newServiceClient: NewServiceClient,
-) {}
-```
-
-#### Шаг 5: Добавить ENV переменную
+#### Шаг 4: Добавить ENV переменную
 ```env
 NEW_SERVICE_GRPC_URL=new-service:50051
 ```
 
-### 5. Добавление нового шага оркестрации
+### 5. Добавление нового шага в pipeline сборки релиза
 
 #### Шаг 1: Создать сервис для нового шага
 ```typescript
-// orchestration/services/new-step.service.ts
+// release-assembly/services/new-step.service.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { CollectedConfig } from '../interfaces/collected-config.interface';
 
@@ -211,13 +171,12 @@ export class NewStepService {
 
   async execute(config: CollectedConfig): Promise<CollectedConfig> {
     this.logger.log('Executing new step...');
-    // Логика нового шага
     return config;
   }
 }
 ```
 
-#### Шаг 2: Добавить в orchestration.module.ts
+#### Шаг 2: Добавить в release-assembly.module.ts
 ```typescript
 providers: [
   // ... существующие сервисы
@@ -225,51 +184,42 @@ providers: [
 ],
 ```
 
-#### Шаг 3: Интегрировать в release-orchestrator.service.ts
+#### Шаг 3: Интегрировать в release-assembly.service.ts
 ```typescript
 // В buildInitialSteps — добавить новый шаг
 { name: 'new_step', status: 'pending' },
 
-// В orchestrateRelease — вызвать новый шаг
-await this.updateStep(orchestration.id, 'new_step', 'in_progress');
-const afterNewStep = await this.newStepService.execute(withTemplates);
-await this.updateStep(orchestration.id, 'new_step', 'completed');
+// В assembleRelease — вызвать новый шаг
+await this.updateStep(assembly.id, 'new_step', 'in_progress');
+const afterNewStep = await this.newStepService.execute(normalized);
+await this.updateStep(assembly.id, 'new_step', 'completed');
 ```
 
 ## Паттерны для масштабирования
 
-### 1. Разделение ответственности в оркестрации
+### 1. Разделение ответственности в pipeline
 
-#### Плохо: Вся логика в оркестраторе
+#### Плохо: Вся логика в одном сервисе
 ```typescript
-async orchestrateRelease(dto: CreateReleaseDto) {
-  // Сбор данных
-  const project = await this.projectsClient.getProject(dto.projectId);
-  const processes = await this.processesClient.getProcesses(dto.projectId);
-  const variables = await this.variablesClient.getVariables(dto.projectId);
+async assembleRelease(notification: ArtifactNotificationDto) {
+  const project = await this.projectsClient.getProject(notification.projectId);
+  const variables = await this.variablesClient.getVariableDefinitions(notification.projectId);
 
-  // Валидация (прямо тут)
   if (!project) throw new Error('Project not found');
-  if (processes.length === 0) throw new Error('No processes');
+  if (variables.length === 0) throw new Error('No variables defined');
 
-  // Шаблоны (прямо тут)
-  for (const process of processes) {
-    process.config = this.renderTemplate(process.config, variables);
-  }
-
-  // ... и т.д. — 200 строк
+  // ... 200 строк валидации, нормализации, сборки
 }
 ```
 
 #### Хорошо: Каждый шаг — отдельный сервис
 ```typescript
-async orchestrateRelease(dto: CreateReleaseDto) {
-  const config = await this.configCollector.collectAll(dto.projectId);
+async assembleRelease(notification: ArtifactNotificationDto) {
+  const config = await this.configCollector.collectAll(notification.projectId, notification.artifactKey);
   await this.configValidator.validate(config);
-  const rendered = await this.templateRenderer.render(config);
-  // Snapper не разрешает секреты: секреты выдаются Variables по запросу Processes
-  const snapshot = await this.snapshotBuilder.build(rendered, dto, companyId);
-  await this.projectsClient.createRelease({ snapshotId: snapshot.id, ...dto });
+  const normalized = await this.templateRenderer.normalize(config);
+  const snapshot = await this.snapshotBuilder.build(normalized, notification);
+  await this.projectsClient.createRelease({ snapshotId: snapshot.id, ...notification });
 }
 ```
 
@@ -278,36 +228,30 @@ async orchestrateRelease(dto: CreateReleaseDto) {
 #### Плохо: Последовательные вызовы
 ```typescript
 const project = await this.projectsClient.getProject(projectId);
-const processes = await this.processesClient.getProcesses(projectId);
-const variables = await this.variablesClient.getVariables(projectId);
-const assets = await this.assetsClient.getAssets(projectId);
-const targets = await this.targetsPlaneClient.getTargets(projectId);
-// ~5 * RTT (round-trip time)
+const variables = await this.variablesClient.getVariableDefinitions(projectId);
+const artifacts = await this.artifactStorageClient.getArtifacts(artifactKey);
+// ~3 * RTT
 ```
 
 #### Хорошо: Параллельные вызовы
 ```typescript
-const [project, processes, variables, assets, targets] = await Promise.all([
+const [project, variables, artifacts] = await Promise.all([
   this.projectsClient.getProject(projectId),
-  this.processesClient.getProcesses(projectId),
-  this.variablesClient.getVariables(projectId),
-  this.assetsClient.getAssets(projectId),
-  this.targetsPlaneClient.getTargets(projectId),
+  this.variablesClient.getVariableDefinitions(projectId),
+  this.artifactStorageClient.getArtifacts(artifactKey),
 ]);
-// ~1 * max(RTT) — значительно быстрее
+// ~1 * max(RTT)
 ```
 
 #### Ещё лучше: Graceful degradation
 ```typescript
 const results = await Promise.allSettled([
   this.projectsClient.getProject(projectId),
-  this.processesClient.getProcesses(projectId),
-  this.variablesClient.getVariables(projectId),
-  this.assetsClient.getAssets(projectId),
-  this.targetsPlaneClient.getTargets(projectId),
+  this.variablesClient.getVariableDefinitions(projectId),
+  this.artifactStorageClient.getArtifacts(artifactKey),
 ]);
 
-const [project, processes, variables, assets, targets] = results.map(
+const [project, variables, artifacts] = results.map(
   (result, index) => {
     if (result.status === 'fulfilled') return result.value;
     this.logger.warn(`Service ${serviceNames[index]} failed: ${result.reason}`);
@@ -315,8 +259,8 @@ const [project, processes, variables, assets, targets] = results.map(
   },
 );
 
-// Проверить обязательные данные
 if (!project) throw new Error('Project data is required');
+if (!artifacts) throw new Error('Artifacts are required');
 ```
 
 ### 3. Retry и Circuit Breaker для gRPC вызовов
@@ -325,7 +269,6 @@ if (!project) throw new Error('Project data is required');
 import { timeout, retry, catchError } from 'rxjs/operators';
 import { throwError, timer } from 'rxjs';
 
-// Retry с exponential backoff
 async callWithRetry<T>(observable: Observable<T>): Promise<T> {
   return firstValueFrom(
     observable.pipe(
@@ -333,7 +276,7 @@ async callWithRetry<T>(observable: Observable<T>): Promise<T> {
       retry({
         count: 3,
         delay: (error, retryCount) => {
-          const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+          const delay = Math.pow(2, retryCount) * 1000;
           this.logger.warn(`Retry ${retryCount}, delay ${delay}ms: ${error.message}`);
           return timer(delay);
         },
@@ -347,77 +290,19 @@ async callWithRetry<T>(observable: Observable<T>): Promise<T> {
 }
 ```
 
-### 4. Artifact Storage backend configuration
+### 4. Обработка ошибок в pipeline
 
 ```typescript
-// Работа с Artifact Storage (FS default / S3 opt-in) для конкретной компании/бэкенда
-async uploadSnapshot(
-  snapshotData: Buffer,
-  companyId: string,
-  artifactKey: string,
-) {
-  const companyConfig = await this.companyConfigService.getByCompanyId(companyId);
-
-  // Создать backend-клиент для компании
-  const backendClient = this.storageService.createClientForCompany({
-    endpoint: companyConfig.s3Endpoint,
-    region: companyConfig.s3Region,
-    accessKey: companyConfig.s3AccessKey,
-    secretKey: companyConfig.s3SecretKey,
-  });
-
-  await this.storageService.upload(
-    companyConfig.s3Bucket,
-    artifactKey,
-    snapshotData,
-    backendClient,
-  );
-}
-```
-
-### 5. Поток снапшота (через Artifact Storage)
-
-```typescript
-// Поток снапшота — зона Artifact Storage/Processes/Worker
-@GrpcStreamMethod('ArtifactStorageService', 'GetSnapshotStream')
-async *downloadSnapshot(data: { snapshotId: string }) {
-  const snapshot = await this.snapshotsService.findById(data.snapshotId);
-  const fileStream = await this.storageService.getStream(
-    snapshot.artifactBackend,
-    snapshot.artifactKey,
-  );
-
-  const chunkSize = 64 * 1024; // 64KB chunks
-  let offset = 0;
-
-  for await (const chunk of fileStream) {
-    yield {
-      data: chunk,
-      offset,
-      totalSize: snapshot.sizeBytes,
-    };
-    offset += chunk.length;
-  }
-}
-```
-
-### 6. Обработка ошибок в оркестрации
-
-```typescript
-// Специфичные ошибки
 import { HttpException, HttpStatus } from '@nestjs/common';
 
-// NotFoundException
 if (!snapshot) {
   throw new NotFoundException(`Snapshot ${id} not found`);
 }
 
-// ConflictException
 if (existing) {
   throw new ConflictException(`Snapshot for version ${version} already exists`);
 }
 
-// Ошибка валидации конфигурации
 class ConfigValidationException extends HttpException {
   constructor(errors: string[], warnings: string[]) {
     super(
@@ -427,8 +312,7 @@ class ConfigValidationException extends HttpException {
   }
 }
 
-// Ошибка внешнего сервиса
-class ServiceUnavailableException extends HttpException {
+class ExternalServiceUnavailableException extends HttpException {
   constructor(serviceName: string) {
     super(
       `External service ${serviceName} is unavailable`,
@@ -447,66 +331,57 @@ async findAll(query: SnapshotQueryDto) {
   const { page = 1, pageSize = 20 } = query;
   const skip = (page - 1) * pageSize;
 
-  const [items, total] = await this.repository.findAndCount({
-    where: this.buildWhereClause(query),
-    skip,
-    take: pageSize,
-    order: { createdAt: 'DESC' },
-  });
+  const [items, total] = await this.db.$transaction([
+    this.db.snapshot.findMany({
+      where: this.buildWhereClause(query),
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize,
+    }),
+    this.db.snapshot.count({ where: this.buildWhereClause(query) }),
+  ]);
 
-  return {
-    items,
-    total,
-    page,
-    pageSize,
-    totalPages: Math.ceil(total / pageSize),
-  };
+  return { items, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
 }
 ```
 
-### 2. Индексы в БД
+### 2. Индексы в БД (Prisma)
 
-```typescript
-// Entity с индексами
-@Entity('snapshots')
-@Index(['projectId'])
-@Index(['companyId'])
-@Index(['status'])
-@Index(['projectId', 'version'], { unique: true })
-@Index(['createdAt'])
-export class SnapshotEntity {
-  // ...
+```prisma
+model Snapshot {
+  // ... поля
+
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@unique([projectId, version])
 }
 ```
 
-### 3. Кэширование company_config
+### 3. Кэширование данных проекта (TTL-based)
 
 ```typescript
 @Injectable()
-export class CompanyConfigService {
-  private cache = new Map<string, { config: CompanyConfigEntity; expiresAt: number }>();
+export class ProjectsCacheService {
+  private cache = new Map<string, { data: any; expiresAt: number }>();
 
-  async getByCompanyId(companyId: string): Promise<CompanyConfigEntity> {
-    const cached = this.cache.get(companyId);
+  async getProject(projectId: string, fetcher: () => Promise<any>) {
+    const cached = this.cache.get(projectId);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.config;
+      return cached.data;
     }
 
-    const config = await this.repository.findByCompanyId(companyId);
-    if (!config) {
-      throw new NotFoundException(`Company config for ${companyId} not found`);
-    }
-
-    this.cache.set(companyId, {
-      config,
-      expiresAt: Date.now() + 5 * 60 * 1000, // 5 минут
+    const data = await fetcher();
+    this.cache.set(projectId, {
+      data,
+      expiresAt: Date.now() + 5 * 60 * 1000,
     });
 
-    return config;
+    return data;
   }
 
-  invalidateCache(companyId: string) {
-    this.cache.delete(companyId);
+  invalidate(projectId: string) {
+    this.cache.delete(projectId);
   }
 }
 ```
@@ -522,7 +397,7 @@ export class SnapshotCleanupService {
 
   constructor(
     private readonly repository: SnapshotsRepository,
-    private readonly storageService: ArtifactStorageService,
+    private readonly artifactStorageClient: ArtifactStorageClient,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_2AM)
@@ -534,8 +409,8 @@ export class SnapshotCleanupService {
 
     for (const snapshot of expired) {
       try {
-        await this.storageService.delete(snapshot.artifactBackend, snapshot.artifactKey);
-        await this.repository.updateStatus(snapshot.id, SnapshotStatus.ARCHIVED);
+        await this.artifactStorageClient.deleteArtifact(snapshot.artifactKey);
+        await this.repository.updateStatus(snapshot.id, 'ARCHIVED');
         cleaned++;
       } catch (error) {
         this.logger.error(`Failed to cleanup snapshot ${snapshot.id}: ${error.message}`);
@@ -549,52 +424,43 @@ export class SnapshotCleanupService {
 
 ## Тестирование
 
-### 1. Unit тесты для оркестратора
+### 1. Unit тесты для pipeline сборки
 
 ```typescript
-describe('ReleaseOrchestratorService', () => {
-  let service: ReleaseOrchestratorService;
-  let configCollector: ConfigCollectorService;
-  let configValidator: ConfigValidatorService;
-  let snapshotBuilder: SnapshotBuilderService;
-  let projectsClient: ProjectsClient;
+describe('ReleaseAssemblyService', () => {
+  let service: ReleaseAssemblyService;
 
   beforeEach(async () => {
     const module = await Test.createTestingModule({
       providers: [
-        ReleaseOrchestratorService,
+        ReleaseAssemblyService,
         { provide: ConfigCollectorService, useValue: mockConfigCollector },
         { provide: ConfigValidatorService, useValue: mockConfigValidator },
         { provide: TemplateRendererService, useValue: mockTemplateRenderer },
-        // SecretsResolverService removed: секреты выдаются Variables по запросу Processes
         { provide: SnapshotBuilderService, useValue: mockSnapshotBuilder },
-        { provide: OrchestrationsRepository, useValue: mockOrchestrationsRepo },
+        { provide: ReleaseAssembliesRepository, useValue: mockAssembliesRepo },
         { provide: ProjectsClient, useValue: mockProjectsClient },
-        { provide: GithubAgentsClient, useValue: mockGithubAgentsClient },
         { provide: EventsClient, useValue: mockEventsClient },
       ],
     }).compile();
 
-    service = module.get(ReleaseOrchestratorService);
+    service = module.get(ReleaseAssemblyService);
   });
 
-  it('should orchestrate release creation successfully', async () => {
-    // Arrange
-    const dto: CreateReleaseDto = {
+  it('should assemble release successfully', async () => {
+    const notification: ArtifactNotificationDto = {
       projectId: 'project-1',
+      artifactKey: 'artifacts/project-1/abc123',
       version: '1.0.0',
-      createdBy: 'user-1',
     };
 
     jest.spyOn(mockConfigCollector, 'collectAll').mockResolvedValue(mockCollectedConfig);
     jest.spyOn(mockConfigValidator, 'validate').mockResolvedValue({ valid: true });
     jest.spyOn(mockSnapshotBuilder, 'build').mockResolvedValue(mockSnapshot);
 
-    // Act
-    const result = await service.orchestrateRelease(dto, 'company-1');
+    const result = await service.assembleRelease(notification);
 
-    // Assert
-    expect(mockConfigCollector.collectAll).toHaveBeenCalledWith('project-1');
+    expect(mockConfigCollector.collectAll).toHaveBeenCalledWith('project-1', notification.artifactKey);
     expect(mockConfigValidator.validate).toHaveBeenCalled();
     expect(mockSnapshotBuilder.build).toHaveBeenCalled();
     expect(mockProjectsClient.createRelease).toHaveBeenCalledWith(
@@ -602,7 +468,7 @@ describe('ReleaseOrchestratorService', () => {
     );
   });
 
-  it('should fail orchestration on validation error', async () => {
+  it('should fail assembly on validation error', async () => {
     jest.spyOn(mockConfigCollector, 'collectAll').mockResolvedValue(mockCollectedConfig);
     jest.spyOn(mockConfigValidator, 'validate').mockResolvedValue({
       valid: false,
@@ -610,51 +476,74 @@ describe('ReleaseOrchestratorService', () => {
     });
 
     await expect(
-      service.orchestrateRelease(dto, 'company-1'),
+      service.assembleRelease(notification),
     ).rejects.toThrow('Config validation failed');
   });
 });
 ```
 
-### 2. Integration тесты для Artifact Storage
+### 2. Integration тесты с testcontainers
 
 ```typescript
-describe('ArtifactStorageService (integration)', () => {
-  let service: ArtifactStorageService;
-  // Использовать MinIO в Docker через testcontainers
+describe('SnapshotsRepository (integration)', () => {
+  let repository: SnapshotsRepository;
 
-  it('should upload and download snapshot', async () => {
-    const data = Buffer.from(JSON.stringify({ test: true }));
-    const bucket = 'test-bucket';
-    const key = 'test/snapshot.json';
-
-    await service.upload(bucket, key, data);
-    const downloaded = await service.download(bucket, key);
-
-    expect(downloaded.toString()).toEqual(data.toString());
+  beforeAll(async () => {
+    // PostgreSQL testcontainer + Prisma migrate
   });
-});
+
+  it('should create and find snapshot', async () => {
+    const created = await repository.create({
+      projectId: 'project-1',
+      version: '1.0.0',
+      status: 'BUILDING',
+      artifactKey: 'snapshots/project-1/1.0.0/test.json',
+    });
+
+    const found = await repository.findById(created.id);
+    expect(found).toBeDefined();
+    expect(found!.version).toBe('1.0.0');
+  });
+
+  it('should enforce unique project+version constraint', async () => {
+    await repository.create({
+      projectId: 'project-1',
+      version: '2.0.0',
+      status: 'BUILDING',
+      artifactKey: 'key-1',
+    });
+
+    await expect(
+      repository.create({
+        projectId: 'project-1',
+        version: '2.0.0',
+        status: 'BUILDING',
+        artifactKey: 'key-2',
+      }),
+    ).rejects.toThrow();
+  });
+}
 ```
 
-## Работа с миграциями
+## Работа с миграциями (Prisma)
 
 ### Создание миграции
 ```bash
-# Генерация миграции из изменений entities
-npx typeorm migration:generate src/database/migrations/MigrationName -d src/database/data-source.ts
+# Применить изменения schema.prisma и создать миграцию
+bunx prisma migrate dev --name migration-name
 
-# Создание пустой миграции
-npx typeorm migration:create src/database/migrations/MigrationName
+# Сгенерировать Prisma Client без создания миграции
+bunx prisma generate
 ```
 
-### Применение миграций
+### Применение миграций (production)
 ```bash
-npx typeorm migration:run -d src/database/data-source.ts
+bunx prisma migrate deploy
 ```
 
-### Откат миграции
+### Сброс БД (только dev)
 ```bash
-npx typeorm migration:revert -d src/database/data-source.ts
+bunx prisma migrate reset
 ```
 
 ## Логирование
@@ -665,28 +554,30 @@ npx typeorm migration:revert -d src/database/data-source.ts
 import { Logger } from '@nestjs/common';
 
 @Injectable()
-export class ReleaseOrchestratorService {
-  private readonly logger = new Logger(ReleaseOrchestratorService.name);
+export class ReleaseAssemblyService {
+  private readonly logger = new Logger(ReleaseAssemblyService.name);
 
-  async orchestrateRelease(dto: CreateReleaseDto, companyId: string) {
+  async assembleRelease(notification: ArtifactNotificationDto) {
+    const startTime = Date.now();
+
     this.logger.log({
-      message: 'Starting release orchestration',
-      projectId: dto.projectId,
-      version: dto.version,
-      companyId,
+      message: 'Starting release assembly',
+      projectId: notification.projectId,
+      version: notification.version,
     });
 
     try {
-      // ...
+      // ... pipeline steps ...
+
       this.logger.log({
-        message: 'Release orchestration completed',
+        message: 'Release assembly completed',
         snapshotId: snapshot.id,
         durationMs: Date.now() - startTime,
       });
     } catch (error) {
       this.logger.error({
-        message: 'Release orchestration failed',
-        projectId: dto.projectId,
+        message: 'Release assembly failed',
+        projectId: notification.projectId,
         error: error.message,
         stack: error.stack,
       });
@@ -700,39 +591,34 @@ export class ReleaseOrchestratorService {
 
 ### Делать
 
-1. Каждый шаг оркестрации — отдельный сервис (Single Responsibility)
+1. Каждый шаг pipeline — отдельный сервис (Single Responsibility)
 2. Параллельный сбор данных из сервисов (Promise.all)
 3. Retry с exponential backoff для gRPC вызовов
-4. Стриминг для больших снапшотов
-5. Кэширование company_config
-6. Пагинация для списков
-7. Структурированное логирование
-8. Индексы в БД
-9. Per-backend Artifact Storage конфигурация
-10. Автоочистка просроченных снапшотов
+4. Idempotency: повторное уведомление от Agents не создаёт дубликат
+5. Пагинация для списков
+6. Структурированное логирование с correlationId
+7. Индексы в БД (Prisma @@index)
+8. Автоочистка просроченных снапшотов
 
 ### Не делать
 
 1. Не смешивать бизнес-логику в контроллерах
 2. Не делать последовательные gRPC вызовы, когда можно параллельно
-3. Не хранить секреты в открытом виде
+3. Не обращаться к Variables за значениями секретов (только за определениями)
 4. Не делать запросы без пагинации
 5. Не игнорировать ошибки внешних сервисов
 6. Не хардкодить URL-ы сервисов (использовать ENV)
-7. Не загружать весь снапшот в память (стриминг)
-8. Не создавать backend клиент на каждый запрос (переиспользовать)
+7. Не расширять зону ответственности Snapper (деплой, git, секреты — чужие домены)
 
 ## Чеклист для новой фичи
 
-- [ ] Создать модуль (если новый домен)
-- [ ] Создать entity с индексами
-- [ ] Создать миграцию
+- [ ] Добавить Prisma model в `schema.prisma`
+- [ ] Создать миграцию (`bunx prisma migrate dev`)
 - [ ] Создать repository
 - [ ] Создать DTOs с валидацией
 - [ ] Создать service с бизнес-логикой
-- [ ] Создать REST controller
-- [ ] Создать gRPC controller (если нужно)
-- [ ] Обновить proto файлы (если gRPC)
+- [ ] Создать gRPC controller
+- [ ] Обновить proto файлы
 - [ ] Добавить интеграцию (если новый сервис)
 - [ ] Добавить обработку ошибок
 - [ ] Добавить логирование

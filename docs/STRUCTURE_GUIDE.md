@@ -11,7 +11,6 @@
 **`snapshots/snapshots.module.ts`**
 ```typescript
 import { Module } from '@nestjs/common';
-import { SnapshotsController } from './controllers/snapshots.controller';
 import { SnapshotsGrpcController } from './grpc/snapshots.grpc.controller';
 import { SnapshotsService } from './services/snapshots.service';
 import { SnapshotBuilderService } from './services/snapshot-builder.service';
@@ -20,46 +19,53 @@ import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
   imports: [IntegrationsModule],
-  controllers: [SnapshotsController, SnapshotsGrpcController],
+  controllers: [SnapshotsGrpcController],
   providers: [SnapshotsService, SnapshotBuilderService, SnapshotsRepository],
   exports: [SnapshotsService, SnapshotBuilderService],
 })
 export class SnapshotsModule {}
 ```
 
-**`orchestration/orchestration.module.ts`**
+**`release-assembly/release-assembly.module.ts`**
 ```typescript
 import { Module } from '@nestjs/common';
-import { OrchestrationController } from './controllers/orchestration.controller';
-import { OrchestrationGrpcController } from './grpc/orchestration.grpc.controller';
-import { ReleaseOrchestratorService } from './services/release-orchestrator.service';
+import { ReleaseAssemblyGrpcController } from './grpc/release-assembly.grpc.controller';
+import { ReleaseAssemblyService } from './services/release-assembly.service';
 import { ConfigCollectorService } from './services/config-collector.service';
 import { ConfigValidatorService } from './services/config-validator.service';
 import { TemplateRendererService } from './services/template-renderer.service';
-// SecretsResolverService removed: секреты разрешаются в Variables/Processes
-import { OrchestrationsRepository } from './repositories/orchestrations.repository';
+import { ReleaseAssembliesRepository } from './repositories/release-assemblies.repository';
 import { SnapshotsModule } from '../snapshots/snapshots.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
 
 @Module({
   imports: [SnapshotsModule, IntegrationsModule],
-  controllers: [OrchestrationController, OrchestrationGrpcController],
+  controllers: [ReleaseAssemblyGrpcController],
   providers: [
-    ReleaseOrchestratorService,
+    ReleaseAssemblyService,
     ConfigCollectorService,
     ConfigValidatorService,
     TemplateRendererService,
-    OrchestrationsRepository,
+    ReleaseAssembliesRepository,
   ],
-  exports: [ReleaseOrchestratorService],
+  exports: [ReleaseAssemblyService],
 })
-export class OrchestrationModule {}
+export class ReleaseAssemblyModule {}
 ```
 
-### 2. Entity (Сущность)
+### 2. Prisma Schema
 
-**`src/database/schema.prisma` (Snapshot model)**
+**`src/database/schema.prisma`**
 ```prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 enum SnapshotStatus {
   BUILDING
   READY
@@ -73,44 +79,37 @@ model Snapshot {
   version         String
   status          SnapshotStatus @default(BUILDING)
   artifactKey     String
-  artifactBackend String
   checksum        String?
   sizeBytes       BigInt         @default(0)
-  config          Json           @default({})
-  metadata        Json           @default({})
+  config          Json           @default("{}")
+  metadata        Json           @default("{}")
   createdBy       String?
-  companyId       String
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   expiresAt       DateTime?
 
   @@index([projectId])
-  @@index([companyId])
   @@index([status])
   @@unique([projectId, version])
 }
-```
 
-**`src/database/schema.prisma` (Orchestration model)**
-```prisma
-enum OrchestrationStatus {
+enum AssemblyStatus {
   IN_PROGRESS
   COMPLETED
   FAILED
   CANCELLED
 }
 
-model Orchestration {
-  id           String              @id @default(uuid())
+model ReleaseAssembly {
+  id           String         @id @default(uuid())
   snapshotId   String?
   projectId    String
-  companyId    String
-  status       OrchestrationStatus @default(IN_PROGRESS)
-  steps        Json                @default([])
+  status       AssemblyStatus @default(IN_PROGRESS)
+  steps        Json           @default("[]")
   errorMessage String?
   createdBy    String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
   completedAt  DateTime?
 
   @@index([snapshotId])
@@ -119,38 +118,13 @@ model Orchestration {
 }
 ```
 
-**`src/database/schema.prisma` (CompanyConfig model)**
-```prisma
-model CompanyConfig {
-  id                     String   @id @default(uuid())
-  companyId              String   @unique
-
-  // Artifact Storage backend settings (локальная FS / S3-compatible)
-  artifactEndpoint      String?
-  artifactRegion        String?
-  artifactBucket        String?
-  artifactAccessKey     String?
-  artifactSecretKey     String?
-
-  notificationEmail      String?
-  notificationSlackWebhook String?
-
-  maxSnapshotSizeMb      Int      @default(500)
-  snapshotRetentionDays  Int      @default(90)
-  metadata                Json     @default({})
-
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-}
-```
-
-### 3. Repository (Репозиторий)
+### 3. Repository (Prisma)
 
 **`snapshots/repositories/snapshots.repository.ts`**
 ```typescript
 import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '@database/database.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, SnapshotStatus } from '@prisma/client';
 import { SnapshotQueryDto } from '../dto/snapshot-query.dto';
 
 @Injectable()
@@ -168,9 +142,9 @@ export class SnapshotsRepository {
     const skip = (page - 1) * pageSize;
 
     const where: Prisma.SnapshotWhereInput = {
-      ...(projectId ? { projectId } : {}),
-      ...(status ? { status } : {}),
-      ...(version ? { version: { contains: version, mode: 'insensitive' } } : {}),
+      ...(projectId && { projectId }),
+      ...(status && { status }),
+      ...(version && { version: { contains: version, mode: 'insensitive' } }),
     };
 
     const [items, total] = await this.db.$transaction([
@@ -190,32 +164,24 @@ export class SnapshotsRepository {
     return this.db.snapshot.create({ data });
   }
 
-  async updateStatus(id: string, status: Prisma.SnapshotStatus) {
+  async updateStatus(id: string, status: SnapshotStatus) {
     await this.db.snapshot.update({ where: { id }, data: { status } });
   }
 
-  async updateChecksumAndSize(
-    id: string,
-    checksum: string,
-    sizeBytes: bigint,
-  ) {
+  async updateChecksumAndSize(id: string, checksum: string, sizeBytes: bigint) {
     await this.db.snapshot.update({ where: { id }, data: { checksum, sizeBytes } });
   }
 
-  async findByProjectAndVersion(
-    projectId: string,
-    version: string,
-  ) {
+  async findByProjectAndVersion(projectId: string, version: string) {
     return this.db.snapshot.findUnique({
       where: { projectId_version: { projectId, version } },
     });
   }
 
   async findExpired() {
-    const now = new Date();
     return this.db.snapshot.findMany({
       where: {
-        expiresAt: { lt: now },
+        expiresAt: { lt: new Date() },
         status: { not: 'ARCHIVED' },
       },
     });
@@ -223,7 +189,7 @@ export class SnapshotsRepository {
 }
 ```
 
-### 4. Service (Сервис)
+### 4. Service
 
 **`snapshots/services/snapshots.service.ts`**
 ```typescript
@@ -235,7 +201,6 @@ import {
 } from '@nestjs/common';
 import { SnapshotsRepository } from '../repositories/snapshots.repository';
 import { ArtifactStorageClient } from '../../integrations/artifact-storage/artifact-storage.client';
-import { CompanyConfigService } from '../../company-config/services/company-config.service';
 import { CreateSnapshotDto } from '../dto/create-snapshot.dto';
 import { SnapshotQueryDto } from '../dto/snapshot-query.dto';
 import { SnapshotStatus } from '@prisma/client';
@@ -246,8 +211,7 @@ export class SnapshotsService {
 
   constructor(
     private readonly repository: SnapshotsRepository,
-    private readonly storageService: ArtifactStorageClient,
-    private readonly companyConfigService: CompanyConfigService,
+    private readonly artifactStorageClient: ArtifactStorageClient,
   ) {}
 
   async findAll(query: SnapshotQueryDto) {
@@ -262,8 +226,7 @@ export class SnapshotsService {
     return snapshot;
   }
 
-  async create(dto: CreateSnapshotDto, companyId: string) {
-    // Проверка уникальности версии в рамках проекта
+  async create(dto: CreateSnapshotDto) {
     const existing = await this.repository.findByProjectAndVersion(
       dto.projectId,
       dto.version,
@@ -274,8 +237,6 @@ export class SnapshotsService {
       );
     }
 
-    // Получить конфигурацию backend для Artifact Storage (FS default / S3 opt-in)
-    const companyConfig = await this.companyConfigService.getByCompanyId(companyId);
     const artifactKey = `snapshots/${dto.projectId}/${dto.version}/${Date.now()}.json`;
 
     const snapshot = await this.repository.create({
@@ -283,18 +244,11 @@ export class SnapshotsService {
       version: dto.version,
       status: SnapshotStatus.BUILDING,
       artifactKey,
-      artifactBackend: companyConfig.artifactBucket,
       createdBy: dto.createdBy,
-      companyId,
     });
 
     this.logger.log(`Snapshot created: ${snapshot.id} for project ${dto.projectId}`);
     return snapshot;
-  }
-
-  async getDownloadUrl(id: string): Promise<string> {
-    const snapshot = await this.findById(id);
-    return this.storageService.getSignedUrl(snapshot.artifactBackend, snapshot.artifactKey);
   }
 
   async updateStatus(id: string, status: SnapshotStatus) {
@@ -305,156 +259,120 @@ export class SnapshotsService {
 }
 ```
 
-**`orchestration/services/release-orchestrator.service.ts`** (ключевой сервис)
+**`release-assembly/services/release-assembly.service.ts`** (ключевой сервис)
 ```typescript
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigCollectorService } from './config-collector.service';
 import { ConfigValidatorService } from './config-validator.service';
 import { TemplateRendererService } from './template-renderer.service';
-// SecretsResolverService removed: секреты выдаются Variables по запросу Processes
 import { SnapshotBuilderService } from '../../snapshots/services/snapshot-builder.service';
-import { OrchestrationsRepository } from '../repositories/orchestrations.repository';
+import { ReleaseAssembliesRepository } from '../repositories/release-assemblies.repository';
 import { ProjectsClient } from '../../integrations/projects/projects.client';
-import { GithubAgentsClient } from '../../integrations/github-agents/github-agents.client';
 import { EventsClient } from '../../integrations/events/events.client';
-import { CreateReleaseDto } from '../dto/create-release.dto';
-import { OrchestrationStatus } from '../entities/orchestration.entity';
+import { ArtifactNotificationDto } from '../dto/artifact-notification.dto';
 
 @Injectable()
-export class ReleaseOrchestratorService {
-  private readonly logger = new Logger(ReleaseOrchestratorService.name);
+export class ReleaseAssemblyService {
+  private readonly logger = new Logger(ReleaseAssemblyService.name);
 
   constructor(
     private readonly configCollector: ConfigCollectorService,
     private readonly configValidator: ConfigValidatorService,
     private readonly templateRenderer: TemplateRendererService,
     private readonly snapshotBuilder: SnapshotBuilderService,
-    private readonly orchestrationsRepo: OrchestrationsRepository,
+    private readonly assembliesRepo: ReleaseAssembliesRepository,
     private readonly projectsClient: ProjectsClient,
-    private readonly githubAgentsClient: GithubAgentsClient,
     private readonly eventsClient: EventsClient,
   ) {}
 
-  async orchestrateRelease(dto: CreateReleaseDto, companyId: string) {
-    const orchestration = await this.orchestrationsRepo.create({
-      projectId: dto.projectId,
-      companyId,
-      createdBy: dto.createdBy,
-      steps: this.buildInitialSteps(dto),
+  async assembleRelease(notification: ArtifactNotificationDto) {
+    const assembly = await this.assembliesRepo.create({
+      projectId: notification.projectId,
+      createdBy: notification.triggeredBy,
+      steps: this.buildInitialSteps(),
     });
 
-    this.logger.log(`Starting orchestration ${orchestration.id} for project ${dto.projectId}`);
+    this.logger.log(`Starting assembly ${assembly.id} for project ${notification.projectId}`);
 
     try {
-      // Шаг 1: Сбор данных из всех сервисов (параллельно)
-      await this.updateStep(orchestration.id, 'collect_data', 'in_progress');
-      const collectedData = await this.configCollector.collectAll(dto.projectId);
-      await this.updateStep(orchestration.id, 'collect_data', 'completed');
+      // Шаг 1: Сбор данных из сервисов (параллельно)
+      await this.updateStep(assembly.id, 'collect_data', 'in_progress');
+      const collectedData = await this.configCollector.collectAll(
+        notification.projectId,
+        notification.artifactKey,
+      );
+      await this.updateStep(assembly.id, 'collect_data', 'completed');
 
       // Шаг 2: Валидация конфигурации
-      await this.updateStep(orchestration.id, 'validate_config', 'in_progress');
+      await this.updateStep(assembly.id, 'validate_config', 'in_progress');
       const validationResult = await this.configValidator.validate(collectedData);
       if (!validationResult.valid) {
         throw new Error(`Config validation failed: ${validationResult.errors.join(', ')}`);
       }
-      await this.updateStep(orchestration.id, 'validate_config', 'completed');
+      await this.updateStep(assembly.id, 'validate_config', 'completed');
 
-      // Шаг 3: Обработка шаблонов
-      await this.updateStep(orchestration.id, 'process_templates', 'in_progress');
-      const withTemplates = await this.templateRenderer.render(collectedData);
-      await this.updateStep(orchestration.id, 'process_templates', 'completed');
+      // Шаг 3: Нормализация шаблонов (плейсхолдеры переменных остаются как есть)
+      await this.updateStep(assembly.id, 'normalize_templates', 'in_progress');
+      const normalized = await this.templateRenderer.normalize(collectedData);
+      await this.updateStep(assembly.id, 'normalize_templates', 'completed');
 
-      // Шаг 4: Подготовка снапшота (без разрешения секретов)
-      const withSecrets = withTemplates;
+      // Шаг 4: Создание иммутабельного снапшота и сохранение в Artifact Storage
+      await this.updateStep(assembly.id, 'create_snapshot', 'in_progress');
+      const snapshot = await this.snapshotBuilder.build(normalized, notification);
+      await this.assembliesRepo.updateSnapshotId(assembly.id, snapshot.id);
+      await this.updateStep(assembly.id, 'create_snapshot', 'completed');
 
-      // Шаг 5: Создание снапшота и сохранение в Artifact Storage
-      await this.updateStep(orchestration.id, 'create_snapshot', 'in_progress');
-      const snapshot = await this.snapshotBuilder.build(withSecrets, dto, companyId);
-      await this.orchestrationsRepo.updateSnapshotId(orchestration.id, snapshot.id);
-      await this.updateStep(orchestration.id, 'create_snapshot', 'completed');
-
-      // Шаг 6: Создание Release в projects
-      await this.updateStep(orchestration.id, 'create_release', 'in_progress');
+      // Шаг 5: Регистрация Release в Projects
+      await this.updateStep(assembly.id, 'register_release', 'in_progress');
       await this.projectsClient.createRelease({
-        projectId: dto.projectId,
-        version: dto.version,
+        projectId: notification.projectId,
+        version: notification.version,
         snapshotId: snapshot.id,
-        changelog: dto.changelog,
       });
-      await this.updateStep(orchestration.id, 'create_release', 'completed');
+      await this.updateStep(assembly.id, 'register_release', 'completed');
 
-      // Шаг 7: GitHub релиз (опционально)
-      if (dto.options?.createGithubRelease) {
-        await this.updateStep(orchestration.id, 'create_github_release', 'in_progress');
-        await this.githubAgentsClient.createRelease(snapshot);
-        await this.updateStep(orchestration.id, 'create_github_release', 'completed');
-      } else {
-        await this.updateStep(orchestration.id, 'create_github_release', 'skipped');
-      }
-
-      // Шаг 8: Отправка событий
-      await this.updateStep(orchestration.id, 'send_events', 'in_progress');
+      // Шаг 6: Аудит
+      await this.updateStep(assembly.id, 'send_audit', 'in_progress');
       await this.eventsClient.sendReleaseCreated({
         snapshotId: snapshot.id,
-        projectId: dto.projectId,
-        version: dto.version,
-        createdBy: dto.createdBy,
+        projectId: notification.projectId,
+        version: notification.version,
       });
-      await this.updateStep(orchestration.id, 'send_events', 'completed');
+      await this.updateStep(assembly.id, 'send_audit', 'completed');
 
-      // Завершение
-      await this.orchestrationsRepo.updateStatus(
-        orchestration.id,
-        OrchestrationStatus.COMPLETED,
-      );
-
-      this.logger.log(`Orchestration ${orchestration.id} completed successfully`);
-      return this.orchestrationsRepo.findById(orchestration.id);
+      await this.assembliesRepo.updateStatus(assembly.id, 'COMPLETED');
+      this.logger.log(`Assembly ${assembly.id} completed successfully`);
+      return this.assembliesRepo.findById(assembly.id);
     } catch (error) {
-      this.logger.error(
-        `Orchestration ${orchestration.id} failed: ${error.message}`,
-        error.stack,
-      );
-      await this.orchestrationsRepo.updateStatus(
-        orchestration.id,
-        OrchestrationStatus.FAILED,
-        error.message,
-      );
+      this.logger.error(`Assembly ${assembly.id} failed: ${error.message}`, error.stack);
+      await this.assembliesRepo.updateStatus(assembly.id, 'FAILED', error.message);
       throw error;
     }
   }
 
-  private buildInitialSteps(dto: CreateReleaseDto) {
-    const steps = [
+  private buildInitialSteps() {
+    return [
       { name: 'collect_data', status: 'pending' as const },
       { name: 'validate_config', status: 'pending' as const },
-      { name: 'process_templates', status: 'pending' as const },
+      { name: 'normalize_templates', status: 'pending' as const },
       { name: 'create_snapshot', status: 'pending' as const },
-      { name: 'create_release', status: 'pending' as const },
-      { name: 'create_github_release', status: 'pending' as const },
-      { name: 'send_events', status: 'pending' as const },
+      { name: 'register_release', status: 'pending' as const },
+      { name: 'send_audit', status: 'pending' as const },
     ];
-    return steps;
   }
 
-  private async updateStep(
-    orchestrationId: string,
-    stepName: string,
-    status: string,
-  ) {
-    await this.orchestrationsRepo.updateStep(orchestrationId, stepName, status);
+  private async updateStep(assemblyId: string, stepName: string, status: string) {
+    await this.assembliesRepo.updateStep(assemblyId, stepName, status);
   }
 }
 ```
 
-**`orchestration/services/config-collector.service.ts`**
+**`release-assembly/services/config-collector.service.ts`**
 ```typescript
 import { Injectable, Logger } from '@nestjs/common';
 import { ProjectsClient } from '../../integrations/projects/projects.client';
-import { ProcessesClient } from '../../integrations/processes/processes.client';
 import { VariablesClient } from '../../integrations/variables/variables.client';
-import { AssetsClient } from '../../integrations/assets/assets.client';
-import { TargetsPlaneClient } from '../../integrations/targets-plane/targets-plane.client';
+import { ArtifactStorageClient } from '../../integrations/artifact-storage/artifact-storage.client';
 import { CollectedConfig } from '../interfaces/collected-config.interface';
 
 @Injectable()
@@ -463,149 +381,112 @@ export class ConfigCollectorService {
 
   constructor(
     private readonly projectsClient: ProjectsClient,
-    private readonly processesClient: ProcessesClient,
     private readonly variablesClient: VariablesClient,
-    private readonly assetsClient: AssetsClient,
-    private readonly targetsPlaneClient: TargetsPlaneClient,
+    private readonly artifactStorageClient: ArtifactStorageClient,
   ) {}
 
-  async collectAll(projectId: string): Promise<CollectedConfig> {
+  async collectAll(projectId: string, artifactKey: string): Promise<CollectedConfig> {
     this.logger.log(`Collecting config for project ${projectId}`);
 
-    // Параллельный сбор данных из всех сервисов
-    const [project, processes, variables, assets, targets] = await Promise.all([
+    const [project, variableDefinitions, artifacts] = await Promise.all([
       this.projectsClient.getProject(projectId),
-      this.processesClient.getProcesses(projectId),
-      this.variablesClient.getVariables(projectId),
-      this.assetsClient.getAssets(projectId),
-      this.targetsPlaneClient.getTargets(projectId),
+      this.variablesClient.getVariableDefinitions(projectId),
+      this.artifactStorageClient.getArtifacts(artifactKey),
     ]);
 
     this.logger.log(
       `Config collected for project ${projectId}: ` +
-      `${processes.length} processes, ${Object.keys(variables.plain || {}).length} variables, ` +
-      `${assets.length} assets, ${targets.length} targets`,
+      `${variableDefinitions.length} variable definitions, ` +
+      `${artifacts.length} artifacts`,
     );
 
-    return { project, processes, variables, assets, targets };
+    return { project, variableDefinitions, artifacts };
   }
 }
 ```
 
-### 5. Controller (REST)
+### 5. gRPC Controller
 
-**`snapshots/controllers/snapshots.controller.ts`**
+**`release-assembly/grpc/release-assembly.grpc.controller.ts`**
 ```typescript
-import {
-  Controller,
-  Get,
-  Post,
-  Delete,
-  Param,
-  Body,
-  Query,
-  HttpCode,
-  HttpStatus,
-  Res,
-} from '@nestjs/common';
-import { Response } from 'express';
-import { SnapshotsService } from '../services/snapshots.service';
-import { CreateSnapshotDto } from '../dto/create-snapshot.dto';
-import { SnapshotQueryDto } from '../dto/snapshot-query.dto';
-import { CompanyId } from '../../common/decorators/company-id.decorator';
+import { Controller } from '@nestjs/common';
+import { GrpcMethod } from '@nestjs/microservices';
+import { ReleaseAssemblyService } from '../services/release-assembly.service';
 
-@Controller('api/snapshots')
-export class SnapshotsController {
+@Controller()
+export class ReleaseAssemblyGrpcController {
+  constructor(private readonly service: ReleaseAssemblyService) {}
+
+  @GrpcMethod('SnapperService', 'NotifyArtifactsReady')
+  async notifyArtifactsReady(data: {
+    projectId: string;
+    artifactKey: string;
+    version: string;
+    triggeredBy?: string;
+  }) {
+    return this.service.assembleRelease(data);
+  }
+
+  @GrpcMethod('SnapperService', 'GetAssemblyStatus')
+  async getAssemblyStatus(data: { id: string }) {
+    return this.service.getStatus(data.id);
+  }
+
+  @GrpcMethod('SnapperService', 'ValidateConfig')
+  async validateConfig(data: { projectId: string }) {
+    return this.service.validateOnly(data.projectId);
+  }
+}
+```
+
+**`snapshots/grpc/snapshots.grpc.controller.ts`**
+```typescript
+import { Controller } from '@nestjs/common';
+import { GrpcMethod } from '@nestjs/microservices';
+import { SnapshotsService } from '../services/snapshots.service';
+
+@Controller()
+export class SnapshotsGrpcController {
   constructor(private readonly service: SnapshotsService) {}
 
-  @Get()
-  async findAll(@Query() query: SnapshotQueryDto) {
-    return this.service.findAll(query);
+  @GrpcMethod('SnapperService', 'GetSnapshot')
+  async getSnapshot(data: { id: string }) {
+    return this.service.findById(data.id);
   }
 
-  @Get(':id')
-  async findById(@Param('id') id: string) {
-    return this.service.findById(id);
-  }
-
-  @Get(':id/config')
-  async getConfig(@Param('id') id: string) {
-    const snapshot = await this.service.findById(id);
-    return snapshot.config;
-  }
-
-  @Get(':id/download')
-  async download(@Param('id') id: string, @Res() res: Response) {
-    const downloadUrl = await this.service.getDownloadUrl(id);
-    res.redirect(downloadUrl);
-  }
-
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async create(
-    @Body() dto: CreateSnapshotDto,
-    @CompanyId() companyId: string,
-  ) {
-    return this.service.create(dto, companyId);
-  }
-
-  @Delete(':id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async delete(@Param('id') id: string) {
-    await this.service.updateStatus(id, 'archived' as any);
+  @GrpcMethod('SnapperService', 'ListSnapshots')
+  async listSnapshots(data: { projectId: string; page: number; pageSize: number }) {
+    return this.service.findAll({
+      projectId: data.projectId,
+      page: data.page,
+      pageSize: data.pageSize,
+    });
   }
 }
 ```
 
-**`orchestration/controllers/orchestration.controller.ts`**
+### 6. DTO
+
+**`release-assembly/dto/artifact-notification.dto.ts`**
 ```typescript
-import {
-  Controller,
-  Get,
-  Post,
-  Param,
-  Body,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
-import { ReleaseOrchestratorService } from '../services/release-orchestrator.service';
-import { ConfigValidatorService } from '../services/config-validator.service';
-import { CreateReleaseDto } from '../dto/create-release.dto';
-import { ValidateConfigDto } from '../dto/validate-config.dto';
-import { CompanyId } from '../../common/decorators/company-id.decorator';
+import { IsString, IsUUID, IsOptional, MaxLength } from 'class-validator';
 
-@Controller('api/orchestration')
-export class OrchestrationController {
-  constructor(
-    private readonly orchestrator: ReleaseOrchestratorService,
-    private readonly validator: ConfigValidatorService,
-  ) {}
+export class ArtifactNotificationDto {
+  @IsUUID()
+  projectId: string;
 
-  @Post('releases')
-  @HttpCode(HttpStatus.ACCEPTED)
-  async createRelease(
-    @Body() dto: CreateReleaseDto,
-    @CompanyId() companyId: string,
-  ) {
-    return this.orchestrator.orchestrateRelease(dto, companyId);
-  }
+  @IsString()
+  artifactKey: string;
 
-  @Get(':id/status')
-  async getStatus(@Param('id') id: string) {
-    return this.orchestrator.getStatus(id);
-  }
+  @IsString()
+  @MaxLength(50)
+  version: string;
 
-  @Post('validate')
-  async validate(
-    @Body() dto: ValidateConfigDto,
-    @CompanyId() companyId: string,
-  ) {
-    return this.validator.validateForProject(dto.projectId, companyId);
-  }
+  @IsString()
+  @IsOptional()
+  triggeredBy?: string;
 }
 ```
-
-### 6. DTO (Data Transfer Object)
 
 **`snapshots/dto/create-snapshot.dto.ts`**
 ```typescript
@@ -625,111 +506,7 @@ export class CreateSnapshotDto {
 }
 ```
 
-**`orchestration/dto/create-release.dto.ts`**
-```typescript
-import {
-  IsString,
-  IsUUID,
-  IsOptional,
-  IsObject,
-  IsBoolean,
-  MaxLength,
-  ValidateNested,
-} from 'class-validator';
-import { Type } from 'class-transformer';
-
-class CreateReleaseOptions {
-  @IsBoolean()
-  @IsOptional()
-  createGithubRelease?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyOnComplete?: boolean;
-}
-
-export class CreateReleaseDto {
-  @IsUUID()
-  projectId: string;
-
-  @IsString()
-  @MaxLength(50)
-  version: string;
-
-  @IsString()
-  @IsOptional()
-  @MaxLength(10000)
-  changelog?: string;
-
-  @IsString()
-  @IsOptional()
-  createdBy?: string;
-
-  @ValidateNested()
-  @Type(() => CreateReleaseOptions)
-  @IsOptional()
-  options?: CreateReleaseOptions;
-}
-```
-
-### 7. gRPC Controller
-
-**`snapshots/grpc/snapshots.grpc.controller.ts`**
-```typescript
-import { Controller } from '@nestjs/common';
-import { GrpcMethod, GrpcStreamMethod } from '@nestjs/microservices';
-import { SnapshotsService } from '../services/snapshots.service';
-import { Observable, Subject } from 'rxjs';
-
-@Controller()
-export class SnapshotsGrpcController {
-  constructor(private readonly service: SnapshotsService) {}
-
-  @GrpcMethod('SnapperService', 'GetSnapshot')
-  async getSnapshot(data: { id: string }) {
-    const snapshot = await this.service.findById(data.id);
-    return this.toGrpcSnapshot(snapshot);
-  }
-
-  @GrpcMethod('SnapperService', 'GetSnapshotConfig')
-  async getSnapshotConfig(data: { snapshotId: string }) {
-    const snapshot = await this.service.findById(data.snapshotId);
-    return snapshot.config;
-  }
-
-  @GrpcMethod('SnapperService', 'ListSnapshots')
-  async listSnapshots(data: { projectId: string; page: number; pageSize: number }) {
-    return this.service.findAll({
-      projectId: data.projectId,
-      page: data.page,
-      pageSize: data.pageSize,
-    });
-  }
-
-  @GrpcMethod('SnapperService', 'UpdateSnapshotStatus')
-  async updateSnapshotStatus(data: { id: string; status: string }) {
-    await this.service.updateStatus(data.id, data.status as any);
-    return this.service.findById(data.id);
-  }
-
-  private toGrpcSnapshot(entity: any) {
-    return {
-      id: entity.id,
-      projectId: entity.projectId,
-      version: entity.version,
-      status: entity.status,
-      artifactKey: entity.artifactKey,
-      artifactBackend: entity.artifactBackend,
-      checksum: entity.checksum,
-      sizeBytes: entity.sizeBytes,
-      createdBy: entity.createdBy,
-      companyId: entity.companyId,
-    };
-  }
-}
-```
-
-### 8. Integration Client (gRPC клиент)
+### 7. Integration Client (gRPC)
 
 **`integrations/projects/projects.client.ts`**
 ```typescript
@@ -771,7 +548,6 @@ export class ProjectsClient implements OnModuleInit {
     projectId: string;
     version: string;
     snapshotId: string;
-    changelog?: string;
   }) {
     this.logger.log(`Creating release for project ${data.projectId} v${data.version}`);
     return firstValueFrom(
@@ -784,7 +560,43 @@ export class ProjectsClient implements OnModuleInit {
 }
 ```
 
-### 9. Integration Client (Artifact Storage)
+**`integrations/variables/variables.client.ts`**
+```typescript
+import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { ClientGrpc } from '@nestjs/microservices';
+import { Inject } from '@nestjs/common';
+import { firstValueFrom } from 'rxjs';
+import { timeout, retry } from 'rxjs/operators';
+
+export interface IVariablesService {
+  GetVariableDefinitions(data: { projectId: string }): any;
+}
+
+@Injectable()
+export class VariablesClient implements OnModuleInit {
+  private readonly logger = new Logger(VariablesClient.name);
+  private variablesService: IVariablesService;
+
+  constructor(
+    @Inject('VARIABLES_PACKAGE') private readonly client: ClientGrpc,
+  ) {}
+
+  onModuleInit() {
+    this.variablesService =
+      this.client.getService<IVariablesService>('VariablesService');
+  }
+
+  async getVariableDefinitions(projectId: string) {
+    this.logger.debug(`Getting variable definitions for project ${projectId}`);
+    return firstValueFrom(
+      this.variablesService.GetVariableDefinitions({ projectId }).pipe(
+        timeout(5000),
+        retry(3),
+      ),
+    );
+  }
+}
+```
 
 **`integrations/artifact-storage/artifact-storage.client.ts`**
 ```typescript
@@ -795,76 +607,69 @@ import { firstValueFrom } from 'rxjs';
 import { timeout, retry } from 'rxjs/operators';
 
 export interface IArtifactStorageService {
-  // Пример: Artifact Storage отдаёт signed URL для чтения артефакта
-  GetSignedUrl(data: { backend: string; key: string; expiresIn?: number }): any;
+  GetArtifacts(data: { key: string }): any;
+  SaveSnapshot(data: { key: string; data: Buffer }): any;
 }
 
 @Injectable()
 export class ArtifactStorageClient implements OnModuleInit {
   private readonly logger = new Logger(ArtifactStorageClient.name);
-  private artifactStorageService: IArtifactStorageService;
+  private storageService: IArtifactStorageService;
 
   constructor(
     @Inject('ARTIFACT_STORAGE_PACKAGE') private readonly client: ClientGrpc,
   ) {}
 
   onModuleInit() {
-    this.artifactStorageService =
+    this.storageService =
       this.client.getService<IArtifactStorageService>('ArtifactStorageService');
   }
 
-  async getSignedUrl(backend: string, key: string, expiresIn = 3600) {
-    this.logger.debug(`GetSignedUrl for backend=${backend}, key=${key}`);
+  async getArtifacts(key: string) {
+    this.logger.debug(`Getting artifacts for key=${key}`);
     return firstValueFrom(
-      this.artifactStorageService
-        .GetSignedUrl({ backend, key, expiresIn })
-        .pipe(timeout(5000), retry(3)),
+      this.storageService.GetArtifacts({ key }).pipe(timeout(10000), retry(3)),
+    );
+  }
+
+  async saveSnapshot(key: string, data: Buffer) {
+    this.logger.debug(`Saving snapshot key=${key}`);
+    return firstValueFrom(
+      this.storageService.SaveSnapshot({ key, data }).pipe(timeout(30000), retry(2)),
     );
   }
 }
 ```
 
-### 10. Interface (Интерфейс)
+### 8. Interface
 
-**`storage/interfaces/storage.interface.ts`**
-```typescript
-export interface IStorageService {
-  upload(bucket: string, key: string, data: Buffer): Promise<void>;
-  download(bucket: string, key: string): Promise<Buffer>;
-  getSignedUrl(bucket: string, key: string, expiresIn?: number): Promise<string>;
-  delete(bucket: string, key: string): Promise<void>;
-}
-```
-
-**`orchestration/interfaces/collected-config.interface.ts`**
+**`release-assembly/interfaces/collected-config.interface.ts`**
 ```typescript
 export interface CollectedConfig {
   project: {
     id: string;
     name: string;
     slug: string;
+    environments: Array<{
+      id: string;
+      name: string;
+    }>;
+    targets: Array<{
+      id: string;
+      name: string;
+      type: string;
+    }>;
   };
-  processes: Array<{
-    id: string;
-    name: string;
-    type: string;
-    config: Record<string, any>;
+  variableDefinitions: Array<{
+    key: string;
+    scope: string;
+    isSecret: boolean;
   }>;
-  variables: {
-    plain: Record<string, string>;
-    secrets: Record<string, string>;
-  };
-  assets: Array<{
-    id: string;
+  artifacts: Array<{
     name: string;
-    url: string;
-    type: string;
-    metadata: Record<string, any>;
-  }>;
-  targets: Array<{
-    id: string;
-    platform: string;
-    config: Record<string, any>;
+    key: string;
+    sizeBytes: number;
+    checksum: string;
   }>;
 }
 ```
@@ -873,20 +678,20 @@ export interface CollectedConfig {
 
 ### Файлы
 - **Prisma models**: `src/database/schema.prisma`
-- **DTOs**: `*.dto.ts` (например, `create-snapshot.dto.ts`)
-- **Services**: `*.service.ts` (например, `snapshots.service.ts`)
-- **Controllers**: `*.controller.ts` (например, `snapshots.controller.ts`)
+- **DTOs**: `*.dto.ts` (например, `artifact-notification.dto.ts`)
+- **Services**: `*.service.ts` (например, `release-assembly.service.ts`)
+- **gRPC Controllers**: `*.grpc.controller.ts` (например, `snapshots.grpc.controller.ts`)
 - **Repositories**: `*.repository.ts` (например, `snapshots.repository.ts`)
 - **Modules**: `*.module.ts` (например, `snapshots.module.ts`)
-- **Interfaces**: `*.interface.ts` (например, `storage.interface.ts`)
+- **Interfaces**: `*.interface.ts` (например, `collected-config.interface.ts`)
 - **Clients**: `*.client.ts` (например, `projects.client.ts`)
-- **Tests**: `*.spec.ts` (например, `snapshots.service.spec.ts`)
+- **Tests**: `*.spec.ts` (например, `release-assembly.service.spec.ts`)
 
 ### Классы
-- **Prisma types**: берутся из сгенерированных типов Prisma (`@prisma/client`)
-- **DTOs**: `*Dto` (например, `CreateSnapshotDto`)
-- **Services**: `*Service` (например, `SnapshotsService`)
-- **Controllers**: `*Controller` (например, `SnapshotsController`)
+- **Prisma types**: из `@prisma/client` (`Snapshot`, `ReleaseAssembly`, `SnapshotStatus`)
+- **DTOs**: `*Dto` (например, `ArtifactNotificationDto`)
+- **Services**: `*Service` (например, `ReleaseAssemblyService`)
+- **gRPC Controllers**: `*GrpcController` (например, `SnapshotsGrpcController`)
 - **Repositories**: `*Repository` (например, `SnapshotsRepository`)
 - **Clients**: `*Client` (например, `ProjectsClient`)
 
@@ -897,7 +702,6 @@ export interface CollectedConfig {
 **`snapshots/dto/index.ts`**
 ```typescript
 export * from './create-snapshot.dto';
-export * from './update-snapshot.dto';
 export * from './snapshot-query.dto';
 export * from './snapshot-response.dto';
 ```
@@ -908,7 +712,6 @@ export * from './snapshot-response.dto';
 ```typescript
 import { SnapshotsService } from '../services';
 import { CreateSnapshotDto } from '../dto';
-// Prisma types (например, SnapshotStatus) импортируются из @prisma/client при необходимости
 ```
 
 ### Неправильный способ
