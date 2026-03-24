@@ -1,0 +1,14 @@
+import { Module } from '@nestjs/common';
+import { DatabaseModule } from '@database/database.module';
+import { IntegrationsModule } from '@integrations/integrations.module';
+import { SnapshotsGrpcController } from './grpc';
+import { SnapshotsRepository } from './repositories';
+import { SnapshotBuilderService, SnapshotsService } from './services';
+
+@Module({
+  imports: [DatabaseModule, IntegrationsModule],
+  controllers: [SnapshotsGrpcController],
+  providers: [SnapshotsRepository, SnapshotsService, SnapshotBuilderService],
+  exports: [SnapshotsService, SnapshotBuilderService],
+})
+export class SnapshotsModule {}

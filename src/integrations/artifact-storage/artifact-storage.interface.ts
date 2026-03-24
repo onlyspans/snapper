@@ -46,5 +46,6 @@ export interface GetSnapshotInfoResponse {
 }
 
 export interface ArtifactStorageGrpcService {
+  UploadSnapshot(request: UploadSnapshotRequest): unknown;
   GetSnapshotInfo(request: GetSnapshotInfoRequest): unknown;
 }

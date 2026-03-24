@@ -8,6 +8,8 @@ import {
   ArtifactStorageGrpcService,
   GetSnapshotInfoRequest,
   GetSnapshotInfoResponse,
+  UploadSnapshotRequest,
+  UploadSnapshotResponse,
 } from '@/integrations/artifact-storage';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -25,6 +27,12 @@ export class ArtifactStorageClient implements OnModuleInit {
   async getSnapshotInfo(request: GetSnapshotInfoRequest): Promise<GetSnapshotInfoResponse> {
     return this.executeWithResilience<GetSnapshotInfoResponse>(
       () => this.artifactStorageService.GetSnapshotInfo(request) as Observable<GetSnapshotInfoResponse>,
+    );
+  }
+
+  async uploadSnapshot(request: UploadSnapshotRequest): Promise<UploadSnapshotResponse> {
+    return this.executeWithResilience<UploadSnapshotResponse>(
+      () => this.artifactStorageService.UploadSnapshot(request) as Observable<UploadSnapshotResponse>,
     );
   }
 
