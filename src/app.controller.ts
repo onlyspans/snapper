@@ -1,4 +1,5 @@
 import { Controller, Get, HttpException, HttpStatus } from '@nestjs/common';
+import { GrpcMethod } from '@nestjs/microservices';
 import { DatabaseService } from '@database/database.service';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ArtifactStorageClient } from '@integrations/artifact-storage';
@@ -22,6 +23,15 @@ export class AppController {
   @ApiResponse({ status: 200, description: 'Service is alive' })
   healthz(): { status: string } {
     return { status: 'OK' };
+  }
+
+  @GrpcMethod('SnapperService', 'HealthCheck')
+  healthCheck(data: { service?: string }): { status: string; message: string } {
+    const service = data.service?.trim() || 'snapper-microservice';
+    return {
+      status: 'OK',
+      message: `${service} is healthy`,
+    };
   }
 
   @Get('readyz')
