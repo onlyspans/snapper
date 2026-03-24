@@ -69,7 +69,13 @@ export class SnapshotsService {
       });
 
       this.metricsService.recordSnapshotCreated(dto.projectId);
-      this.logger.log(`Snapshot "${readySnapshot.id}" created and uploaded`);
+      this.logger.log({
+        message: 'Snapshot created',
+        snapshotId: readySnapshot.id,
+        projectId: dto.projectId,
+        version: dto.version,
+        artifactKey,
+      });
       return this.toResponseDto(readySnapshot);
     } catch (error) {
       await this.repository.updateStatus(buildingSnapshot.id, SnapshotStatus.FAILED);

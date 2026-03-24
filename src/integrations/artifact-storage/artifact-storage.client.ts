@@ -1,9 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
+import { CorrelationContextService } from '@common/logging';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
 import { ARTIFACT_STORAGE_CLIENT } from '../integrations.constants';
+import { createCorrelationMetadata } from '../correlation-metadata.util';
 import {
   ArtifactStorageGrpcService,
   GetSnapshotInfoRequest,
@@ -18,7 +20,10 @@ const REQUEST_TIMEOUT_MS = 5000;
 export class ArtifactStorageClient implements OnModuleInit {
   private artifactStorageService!: ArtifactStorageGrpcService;
 
-  constructor(@Inject(ARTIFACT_STORAGE_CLIENT) private readonly client: ClientGrpc) {}
+  constructor(
+    @Inject(ARTIFACT_STORAGE_CLIENT) private readonly client: ClientGrpc,
+    private readonly correlationContext: CorrelationContextService,
+  ) {}
 
   onModuleInit(): void {
     this.artifactStorageService = this.client.getService<ArtifactStorageGrpcService>('ArtifactStorageService');
@@ -30,13 +35,21 @@ export class ArtifactStorageClient implements OnModuleInit {
 
   async getSnapshotInfo(request: GetSnapshotInfoRequest): Promise<GetSnapshotInfoResponse> {
     return this.executeWithResilience<GetSnapshotInfoResponse>(
-      () => this.artifactStorageService.GetSnapshotInfo(request) as Observable<GetSnapshotInfoResponse>,
+      () =>
+        this.artifactStorageService.GetSnapshotInfo(
+          request,
+          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+        ) as Observable<GetSnapshotInfoResponse>,
     );
   }
 
   async uploadSnapshot(request: UploadSnapshotRequest): Promise<UploadSnapshotResponse> {
     return this.executeWithResilience<UploadSnapshotResponse>(
-      () => this.artifactStorageService.UploadSnapshot(request) as Observable<UploadSnapshotResponse>,
+      () =>
+        this.artifactStorageService.UploadSnapshot(
+          request,
+          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+        ) as Observable<UploadSnapshotResponse>,
     );
   }
 

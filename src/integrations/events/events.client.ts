@@ -1,9 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
+import { CorrelationContextService } from '@common/logging';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
 import { EVENTS_CLIENT } from '../integrations.constants';
+import { createCorrelationMetadata } from '../correlation-metadata.util';
 import { EventGrpcService, IngestEventRequest, IngestEventResponse } from './events.interface';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -12,7 +14,10 @@ const REQUEST_TIMEOUT_MS = 5000;
 export class EventsClient implements OnModuleInit {
   private eventsService!: EventGrpcService;
 
-  constructor(@Inject(EVENTS_CLIENT) private readonly client: ClientGrpc) {}
+  constructor(
+    @Inject(EVENTS_CLIENT) private readonly client: ClientGrpc,
+    private readonly correlationContext: CorrelationContextService,
+  ) {}
 
   onModuleInit(): void {
     this.eventsService = this.client.getService<EventGrpcService>('EventService');
@@ -24,7 +29,11 @@ export class EventsClient implements OnModuleInit {
 
   async ingestEvent(request: IngestEventRequest): Promise<IngestEventResponse> {
     return this.executeWithResilience<IngestEventResponse>(
-      () => this.eventsService.IngestEvent(request) as Observable<IngestEventResponse>,
+      () =>
+        this.eventsService.IngestEvent(
+          request,
+          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+        ) as Observable<IngestEventResponse>,
     );
   }
 

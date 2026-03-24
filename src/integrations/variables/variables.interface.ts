@@ -24,5 +24,5 @@ export interface GetResolvedVariablesResult {
 }
 
 export interface VariablesGrpcService {
-  GetResolvedVariables(request: GetResolvedVariablesInput): unknown;
+  GetResolvedVariables(request: GetResolvedVariablesInput, metadata?: unknown): unknown;
 }

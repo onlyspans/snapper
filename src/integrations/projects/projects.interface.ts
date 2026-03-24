@@ -31,7 +31,7 @@ export interface UpdateReleaseStructureRequest {
 }
 
 export interface ReleasesGrpcService {
-  GetReleaseStructure(request: GetReleaseStructureRequest): unknown;
+  GetReleaseStructure(request: GetReleaseStructureRequest, metadata?: unknown): unknown;
 
-  UpdateReleaseStructure(request: UpdateReleaseStructureRequest): unknown;
+  UpdateReleaseStructure(request: UpdateReleaseStructureRequest, metadata?: unknown): unknown;
 }

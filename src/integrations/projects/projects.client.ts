@@ -1,9 +1,11 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
+import { CorrelationContextService } from '@common/logging';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
 import { PROJECTS_CLIENT } from '../integrations.constants';
+import { createCorrelationMetadata } from '../correlation-metadata.util';
 import {
   GetReleaseStructureRequest,
   ProjectReleaseStructure,
@@ -17,7 +19,10 @@ const REQUEST_TIMEOUT_MS = 5000;
 export class ProjectsClient implements OnModuleInit {
   private releasesService!: ReleasesGrpcService;
 
-  constructor(@Inject(PROJECTS_CLIENT) private readonly client: ClientGrpc) {}
+  constructor(
+    @Inject(PROJECTS_CLIENT) private readonly client: ClientGrpc,
+    private readonly correlationContext: CorrelationContextService,
+  ) {}
 
   onModuleInit(): void {
     this.releasesService = this.client.getService<ReleasesGrpcService>('ReleasesService');
@@ -29,13 +34,21 @@ export class ProjectsClient implements OnModuleInit {
 
   async getReleaseStructure(request: GetReleaseStructureRequest): Promise<ProjectReleaseStructure> {
     return this.executeWithResilience<ProjectReleaseStructure>(
-      () => this.releasesService.GetReleaseStructure(request) as Observable<ProjectReleaseStructure>,
+      () =>
+        this.releasesService.GetReleaseStructure(
+          request,
+          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+        ) as Observable<ProjectReleaseStructure>,
     );
   }
 
   async updateReleaseStructure(request: UpdateReleaseStructureRequest): Promise<ProjectReleaseStructure> {
     return this.executeWithResilience<ProjectReleaseStructure>(
-      () => this.releasesService.UpdateReleaseStructure(request) as Observable<ProjectReleaseStructure>,
+      () =>
+        this.releasesService.UpdateReleaseStructure(
+          request,
+          createCorrelationMetadata(this.correlationContext.getCorrelationId()),
+        ) as Observable<ProjectReleaseStructure>,
     );
   }
 

@@ -20,5 +20,5 @@ export interface IngestEventResponse {
 }
 
 export interface EventGrpcService {
-  IngestEvent(request: IngestEventRequest): unknown;
+  IngestEvent(request: IngestEventRequest, metadata?: unknown): unknown;
 }

@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { AllExceptionsFilter, GrpcExceptionFilter } from './filters';
 import { LoggingInterceptor, TimeoutInterceptor } from './interceptors';
+import { AppLogger, CorrelationContextService } from './logging';
 import { ParseUuidPipe, ValidationPipe } from './pipes';
 
 @Global()
@@ -29,7 +30,9 @@ import { ParseUuidPipe, ValidationPipe } from './pipes';
     },
     ValidationPipe,
     ParseUuidPipe,
+    CorrelationContextService,
+    AppLogger,
   ],
-  exports: [ParseUuidPipe, ValidationPipe],
+  exports: [ParseUuidPipe, ValidationPipe, CorrelationContextService, AppLogger],
 })
 export class CommonModule {}

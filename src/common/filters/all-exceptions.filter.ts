@@ -4,13 +4,18 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Injectable,
   Logger,
 } from '@nestjs/common';
+import { CorrelationContextService } from '@common/logging';
 import { Request, Response } from 'express';
 
 @Catch()
+@Injectable()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  constructor(private readonly correlationContext: CorrelationContextService) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     if (host.getType() !== 'http') {
@@ -25,24 +30,25 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const status = isHttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     const message = isHttpException ? exception.message : 'Internal server error';
     const stack = exception instanceof Error ? exception.stack : undefined;
+    const correlationId = this.correlationContext.getCorrelationId();
 
     const level = status >= 500 ? 'error' : 'warn';
-    this.logger[level](
-      `${request.method} ${request.url} ${status}`,
-      stack,
-      JSON.stringify({
-        method: request.method,
-        path: request.url,
-        status,
-        message,
-      }),
-    );
+    this.logger[level]({
+      message: 'HTTP exception',
+      method: request.method,
+      path: request.url,
+      status,
+      errorMessage: message,
+      correlationId,
+      ...(stack ? { stack } : {}),
+    });
 
     response.status(status).json({
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
+      correlationId,
       message: status >= 500 ? 'Internal server error' : message,
     });
   }

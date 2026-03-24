@@ -7,9 +7,12 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ReflectionService } from '@grpc/reflection';
+import { AppLogger } from '@common/logging';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const logger = app.get(AppLogger);
+  app.useLogger(logger);
 
   const configService = app.get(ConfigService);
 
@@ -47,9 +50,18 @@ async function bootstrap() {
   const port = configService.app.port;
   await app.listen(port);
 
-  console.log(`🚀 HTTP Server (REST API) is running on: http://localhost:${port}/api`);
-  console.log(`📚 Swagger documentation: http://localhost:${port}/api-docs`);
-  console.log(`🔌 gRPC Microservice is running on: 0.0.0.0:${grpcPort}`);
+  logger.log({
+    message: 'HTTP server started',
+    url: `http://localhost:${port}/api`,
+  });
+  logger.log({
+    message: 'Swagger docs started',
+    url: `http://localhost:${port}/api-docs`,
+  });
+  logger.log({
+    message: 'gRPC server started',
+    url: `0.0.0.0:${grpcPort}`,
+  });
 }
 
 void bootstrap();
