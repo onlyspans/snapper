@@ -3,7 +3,7 @@ import { ClientGrpc } from '@nestjs/microservices';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
-import { VARIABLES_CLIENT } from '@/integrations';
+import { VARIABLES_CLIENT } from '../integrations.constants';
 import { GetResolvedVariablesInput, GetResolvedVariablesResult, VariablesGrpcService } from './variables.interface';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -16,6 +16,10 @@ export class VariablesClient implements OnModuleInit {
 
   onModuleInit(): void {
     this.variablesService = this.client.getService<VariablesGrpcService>('VariablesService');
+  }
+
+  isInitialized(): boolean {
+    return Boolean(this.variablesService);
   }
 
   async getResolvedVariables(request: GetResolvedVariablesInput): Promise<GetResolvedVariablesResult> {

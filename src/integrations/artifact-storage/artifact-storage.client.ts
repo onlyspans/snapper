@@ -3,14 +3,14 @@ import { ClientGrpc } from '@nestjs/microservices';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
-import { ARTIFACT_STORAGE_CLIENT } from '@/integrations';
+import { ARTIFACT_STORAGE_CLIENT } from '../integrations.constants';
 import {
   ArtifactStorageGrpcService,
   GetSnapshotInfoRequest,
   GetSnapshotInfoResponse,
   UploadSnapshotRequest,
   UploadSnapshotResponse,
-} from '@/integrations/artifact-storage';
+} from './artifact-storage.interface';
 
 const REQUEST_TIMEOUT_MS = 5000;
 
@@ -22,6 +22,10 @@ export class ArtifactStorageClient implements OnModuleInit {
 
   onModuleInit(): void {
     this.artifactStorageService = this.client.getService<ArtifactStorageGrpcService>('ArtifactStorageService');
+  }
+
+  isInitialized(): boolean {
+    return Boolean(this.artifactStorageService);
   }
 
   async getSnapshotInfo(request: GetSnapshotInfoRequest): Promise<GetSnapshotInfoResponse> {

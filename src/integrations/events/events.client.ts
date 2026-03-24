@@ -3,7 +3,7 @@ import { ClientGrpc } from '@nestjs/microservices';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
-import { EVENTS_CLIENT } from '@/integrations';
+import { EVENTS_CLIENT } from '../integrations.constants';
 import { EventGrpcService, IngestEventRequest, IngestEventResponse } from './events.interface';
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -16,6 +16,10 @@ export class EventsClient implements OnModuleInit {
 
   onModuleInit(): void {
     this.eventsService = this.client.getService<EventGrpcService>('EventService');
+  }
+
+  isInitialized(): boolean {
+    return Boolean(this.eventsService);
   }
 
   async ingestEvent(request: IngestEventRequest): Promise<IngestEventResponse> {

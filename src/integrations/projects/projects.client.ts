@@ -3,7 +3,7 @@ import { ClientGrpc } from '@nestjs/microservices';
 import { lastValueFrom, Observable } from 'rxjs';
 import { timeout } from 'rxjs/operators';
 import { retryWithExponentialBackoff } from '@common/utils';
-import { PROJECTS_CLIENT } from '@/integrations';
+import { PROJECTS_CLIENT } from '../integrations.constants';
 import {
   GetReleaseStructureRequest,
   ProjectReleaseStructure,
@@ -21,6 +21,10 @@ export class ProjectsClient implements OnModuleInit {
 
   onModuleInit(): void {
     this.releasesService = this.client.getService<ReleasesGrpcService>('ReleasesService');
+  }
+
+  isInitialized(): boolean {
+    return Boolean(this.releasesService);
   }
 
   async getReleaseStructure(request: GetReleaseStructureRequest): Promise<ProjectReleaseStructure> {

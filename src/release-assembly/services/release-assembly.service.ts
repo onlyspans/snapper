@@ -6,9 +6,9 @@ import { CreateSnapshotDto, SnapshotsService } from '@/snapshots';
 import { ArtifactNotificationDto, AssemblyStatusDto, ValidateConfigDto } from '../dto';
 import { AssemblyStep } from '../interfaces';
 import { ReleaseAssembliesRepository } from '../repositories';
-import { ConfigCollectorService } from '@/release-assembly';
-import { ConfigValidatorService } from '@/release-assembly';
-import { TemplateRendererService } from '@/release-assembly';
+import { ConfigCollectorService } from './config-collector.service';
+import { ConfigValidatorService } from './config-validator.service';
+import { TemplateRendererService } from './template-renderer.service';
 
 @Injectable()
 export class ReleaseAssemblyService {

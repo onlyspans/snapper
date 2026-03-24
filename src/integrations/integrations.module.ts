@@ -4,15 +4,16 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { ConfigModule } from '@config/config.module';
 import { ConfigService } from '@config/config.service';
-import { ArtifactStorageClient } from '@integrations/artifact-storage';
-import { EventsClient } from '@integrations/events';
-import { ProjectsClient } from '@integrations/projects';
-import { VariablesClient } from '@integrations/variables';
-
-export const PROJECTS_CLIENT = 'PROJECTS_CLIENT';
-export const VARIABLES_CLIENT = 'VARIABLES_CLIENT';
-export const ARTIFACT_STORAGE_CLIENT = 'ARTIFACT_STORAGE_CLIENT';
-export const EVENTS_CLIENT = 'EVENTS_CLIENT';
+import { ArtifactStorageClient } from './artifact-storage/artifact-storage.client';
+import { EventsClient } from './events/events.client';
+import { ProjectsClient } from './projects/projects.client';
+import { VariablesClient } from './variables/variables.client';
+import {
+  ARTIFACT_STORAGE_CLIENT,
+  EVENTS_CLIENT,
+  PROJECTS_CLIENT,
+  VARIABLES_CLIENT,
+} from './integrations.constants';
 
 function resolveProtoPath(fileName: string): string {
   const distProtoPath = join(process.cwd(), 'dist/proto', fileName);

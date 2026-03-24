@@ -2,9 +2,9 @@ import { ConflictException, Injectable, Logger, NotFoundException, Unprocessable
 import { Prisma, SnapshotStatus } from '@database/generated/client';
 import { Pagination } from '@common/interfaces/pagination.interface';
 import { CreateSnapshotDto, SnapshotQueryDto, SnapshotResponseDto } from '../dto';
-import { SnapshotEntity } from '@/snapshots';
-import { SnapshotsRepository } from '@/snapshots';
-import { SnapshotBuilderService } from '@/snapshots';
+import { SnapshotEntity } from '../interfaces';
+import { SnapshotsRepository } from '../repositories';
+import { SnapshotBuilderService } from './snapshot-builder.service';
 
 @Injectable()
 export class SnapshotsService {

@@ -27,6 +27,7 @@ import { ParseUuidPipe, ValidationPipe } from './pipes';
       provide: APP_PIPE,
       useClass: ValidationPipe,
     },
+    ValidationPipe,
     ParseUuidPipe,
   ],
   exports: [ParseUuidPipe, ValidationPipe],

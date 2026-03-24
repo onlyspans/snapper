@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { createChecksum } from '@common/utils';
 import { ArtifactStorageClient } from '@integrations/artifact-storage';
-import { SnapshotConfig } from '@/snapshots';
+import { SnapshotConfig } from '../interfaces';
 
 interface BuildSnapshotInput {
   artifactKey: string;
