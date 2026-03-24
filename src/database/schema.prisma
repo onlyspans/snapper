@@ -5,7 +5,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum SnapshotStatus {
@@ -36,6 +35,7 @@ model Snapshot {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   expiresAt   DateTime?
+  assemblies  ReleaseAssembly[]
 
   @@index([projectId])
   @@index([status])
