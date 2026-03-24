@@ -29,6 +29,7 @@ snapper-microservice/
 │   │
 │   ├── main.ts                         # Точка входа (gRPC сервер + REST для health/metrics)
 │   ├── app.module.ts                   # Корневой модуль
+│   ├── app.service.ts                  # health эндпоинты
 │   │
 │   ├── common/                         # Общие компоненты
 │   │   ├── common.module.ts
@@ -176,11 +177,6 @@ snapper-microservice/
 │   │       ├── events.client.ts
 │   │       ├── events.interface.ts
 │   │       └── events.client.spec.ts
-│   │
-│   ├── health/                             # Health checks
-│   │   ├── health.module.ts
-│   │   ├── health.controller.ts            # /healthz, /readyz (REST)
-│   │   └── health.service.ts               # Проверка БД, gRPC
 │   │
 │   ├── metrics/                            # Prometheus метрики
 │   │   ├── metrics.module.ts
