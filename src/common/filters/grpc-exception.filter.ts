@@ -142,7 +142,8 @@ export class GrpcExceptionFilter extends BaseRpcExceptionFilter {
     }
 
     const message = exception instanceof Error ? exception.message : String(exception);
-    this.logger.error({ message: 'Unhandled gRPC exception', correlationId, error: message }, undefined);
+    const stack = exception instanceof Error ? exception.stack : undefined;
+    this.logger.error({ message: 'Unhandled gRPC exception', correlationId, error: message }, stack);
     return super.catch(
       new RpcException({ code: status.INTERNAL, message: 'Internal server error', correlationId }),
       host,

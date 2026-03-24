@@ -21,6 +21,15 @@ import { TemplateRendererService } from './template-renderer.service';
 
 const VALIDATION_PLACEHOLDER_VERSION = 'validation';
 
+/** Thrown when events ingest fails after release was registered; assembly may still complete. */
+class AuditIngestNonFatalError extends Error {
+  constructor(cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`Audit ingest failed after release registration: ${detail}`);
+    this.name = 'AuditIngestNonFatalError';
+  }
+}
+
 @Injectable()
 export class ReleaseAssemblyService {
   private readonly logger = new Logger(ReleaseAssemblyService.name);
@@ -90,17 +99,18 @@ export class ReleaseAssemblyService {
         Promise.resolve(this.templateRendererService.normalize(collected)),
       );
 
-      const snapshot = await this.runMeasuredStep(assembly.id, 'build_snapshot', async () =>
-        this.snapshotsService.create({
+      const snapshot = await this.runMeasuredStep(assembly.id, 'build_snapshot', async () => {
+        const created = await this.snapshotsService.create({
           projectId: dto.projectId,
           version: dto.version,
           artifactKey: `snapshots/${dto.projectId}/${dto.version}.json`,
           payload: normalizedPayload,
           createdBy: dto.triggeredBy,
-        } satisfies CreateSnapshotDto),
-      );
-      createdSnapshotId = snapshot.id;
-      await this.releaseAssembliesRepository.updateSnapshotId(assembly.id, snapshot.id);
+        } satisfies CreateSnapshotDto);
+        createdSnapshotId = created.id;
+        await this.releaseAssembliesRepository.updateSnapshotId(assembly.id, created.id);
+        return created;
+      });
 
       await this.runMeasuredStep(assembly.id, 'register_release', async () => {
         await this.projectsClient.updateReleaseStructure({
@@ -115,27 +125,48 @@ export class ReleaseAssemblyService {
             metadata: collected.releaseStructure.metadata,
           },
         });
+        releaseRegistered = true;
       });
-      releaseRegistered = true;
 
-      await this.runMeasuredStep(assembly.id, 'audit', async () => {
-        await this.eventsClient.ingestEvent({
-          entity_id: snapshot.id,
-          entity_name: 'snapshot',
-          action: 'release.assembled',
-          user_id: dto.triggeredBy ?? 'system',
-          ip_address: '0.0.0.0',
-          user_agent: 'snapper-microservice',
-          tenant: dto.projectId,
-          changes: [
-            {
-              field: 'version',
-              old_value: '',
-              new_value: dto.version,
-            },
-          ],
+      try {
+        await this.runMeasuredStep(assembly.id, 'audit', async () => {
+          try {
+            await this.eventsClient.ingestEvent({
+              entity_id: snapshot.id,
+              entity_name: 'snapshot',
+              action: 'release.assembled',
+              user_id: dto.triggeredBy ?? 'system',
+              ip_address: '0.0.0.0',
+              user_agent: 'snapper-microservice',
+              tenant: dto.projectId,
+              changes: [
+                {
+                  field: 'version',
+                  old_value: '',
+                  new_value: dto.version,
+                },
+              ],
+            });
+          } catch (ingestError) {
+            const ingestMessage = ingestError instanceof Error ? ingestError.message : String(ingestError);
+            this.logger.warn({
+              message:
+                'Audit ingestion failed after successful release registration; completing assembly without blocking (retry or reconcile events separately)',
+              assemblyId: assembly.id,
+              projectId: dto.projectId,
+              version: dto.version,
+              error: ingestMessage,
+            });
+            throw new AuditIngestNonFatalError(ingestError);
+          }
         });
-      });
+      } catch (auditError) {
+        if (auditError instanceof AuditIngestNonFatalError) {
+          // runMeasuredStep already marked the audit step failed; assembly continues to COMPLETED.
+        } else {
+          throw auditError;
+        }
+      }
 
       await this.releaseAssembliesRepository.updateStatus(assembly.id, AssemblyStatus.COMPLETED);
       this.metricsService.recordAssemblyCompleted();
@@ -150,6 +181,7 @@ export class ReleaseAssemblyService {
           projectId: dto.projectId,
           version: dto.version,
           error: message,
+          releaseRegistered,
         },
         stackOrCause,
       );
@@ -288,7 +320,16 @@ export class ReleaseAssemblyService {
         return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Step failed';
-        await this.updateStep(assemblyId, stepName, 'failed', message);
+        try {
+          await this.updateStep(assemblyId, stepName, 'failed', message);
+        } catch (persistError) {
+          this.logger.warn({
+            message: 'Could not persist failed pipeline step status',
+            assemblyId,
+            stepName,
+            error: persistError instanceof Error ? persistError.message : String(persistError),
+          });
+        }
         throw error;
       }
     } finally {
