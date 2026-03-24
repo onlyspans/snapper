@@ -55,7 +55,6 @@ export class ReleaseAssemblyService {
           projectId: dto.projectId,
           artifactKey: dto.artifactKey,
           version: dto.version,
-          environmentId: dto.environmentId,
         });
       });
 
@@ -184,7 +183,10 @@ export class ReleaseAssemblyService {
       throw new NotFoundException(`Release assembly with id "${id}" not found`);
     }
 
-    const steps = (assembly.steps as unknown as AssemblyStep[]) ?? [];
+    const steps = ((assembly.steps as unknown as AssemblyStep[]) ?? []).map((step) => ({
+      name: step.name,
+      status: step.status,
+    }));
 
     return {
       id: assembly.id,
@@ -205,7 +207,6 @@ export class ReleaseAssemblyService {
       projectId: dto.projectId,
       artifactKey: dto.artifactKey,
       version: 'validation',
-      environmentId: dto.environmentId,
     });
     return this.configValidatorService.validate(collected);
   }

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class ValidateConfigDto {
   @IsUUID()
@@ -7,9 +7,4 @@ export class ValidateConfigDto {
   @IsString()
   @MaxLength(255)
   artifactKey!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  environmentId?: string;
 }

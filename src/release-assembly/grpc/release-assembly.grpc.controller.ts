@@ -9,7 +9,18 @@ export class ReleaseAssemblyGrpcController {
 
   @GrpcMethod('SnapperService', 'NotifyArtifactsReady')
   async notifyArtifactsReady(data: ArtifactNotificationDto) {
-    return this.releaseAssemblyService.notifyArtifactsReady(data);
+    const result = await this.releaseAssemblyService.notifyArtifactsReady(data);
+    return {
+      assemblyId: result.id,
+      snapshotId: result.snapshotId,
+      projectId: result.projectId,
+      status: result.status,
+      errorMessage: result.errorMessage,
+      steps: result.steps,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      completedAt: result.completedAt,
+    };
   }
 
   @GrpcMethod('SnapperService', 'GetAssemblyStatus')

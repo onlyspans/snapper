@@ -5,7 +5,7 @@ export class AssemblyStatusDto {
   snapshotId!: string;
   projectId!: string;
   status!: AssemblyStatus;
-  steps!: Array<{ name: string; status: string; message?: string; updatedAt?: string }>;
+  steps!: Array<{ name: string; status: string }>;
   errorMessage!: string;
   createdBy!: string;
   createdAt!: Date;

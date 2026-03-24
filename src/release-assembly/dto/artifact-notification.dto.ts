@@ -16,9 +16,4 @@ export class ArtifactNotificationDto {
   @IsString()
   @MaxLength(255)
   triggeredBy?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  environmentId?: string;
 }

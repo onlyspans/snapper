@@ -14,21 +14,14 @@ export class ConfigCollectorService {
     private readonly projectsCacheService: ProjectsCacheService,
   ) {}
 
-  async collect(params: {
-    projectId: string;
-    artifactKey: string;
-    version: string;
-    environmentId?: string;
-  }): Promise<CollectedConfig> {
-    const environmentId = params.environmentId ?? 'default';
-
+  async collect(params: { projectId: string; artifactKey: string; version: string }): Promise<CollectedConfig> {
     const [releaseStructure, variables, sourceSnapshot] = await Promise.all([
       this.projectsCacheService.getReleaseStructure(params.projectId, () =>
         this.projectsClient.getReleaseStructure({ id: params.projectId }),
       ),
       this.variablesClient.getResolvedVariables({
         project_id: params.projectId,
-        environment_id: environmentId,
+        environment_id: 'default',
       }),
       this.artifactStorageClient.getSnapshotInfo({
         key: params.artifactKey,
