@@ -1,4 +1,32 @@
 services:
+  snapper:
+    build: .
+    container_name: snapper-microservice-dev
+    ports:
+      - "${HTTP_PORT:-4010}:4010"
+      - "${GRPC_PORT_PUBLISH:-4011}:4011"
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "4010"
+      GRPC_PORT: "4011"
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-snapper}?schema=public
+      PROJECTS_GRPC_URL: ${PROJECTS_GRPC_URL:-host.docker.internal:50052}
+      VARIABLES_GRPC_URL: ${VARIABLES_GRPC_URL:-host.docker.internal:50053}
+      ARTIFACT_STORAGE_GRPC_URL: ${ARTIFACT_STORAGE_GRPC_URL:-host.docker.internal:50054}
+      EVENTS_GRPC_URL: ${EVENTS_GRPC_URL:-host.docker.internal:50055}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4010/healthz || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+      retries: 3
+    networks:
+      - snapper-network-dev
+
   postgres:
     image: postgres:16-alpine
     container_name: snapper-postgres-dev
